@@ -21,22 +21,26 @@ AutoCleanupDialog::AutoCleanupDialog(QWidget *parent) : QDialog(parent), ui(new 
 
 	/* ---------- auto-remux section ---------- */
 	bool autoRemux = config_get_bool(config, "Video", "AutoRemux");
+	const char *modeStr = config_get_string(config, "Output", "Mode");
+	bool simple = !modeStr || strcmp(modeStr, "Simple") == 0;
+	const char *recFormat = config_get_string(config, simple ? "SimpleOutput" : "AdvOut", "RecFormat2");
 
 	ui->deleteOriginAfterRemux->setEnabled(autoRemux);
 	ui->deleteOriginAfterRemux->setChecked(config_get_bool(config, "AutoCleanup", "DeleteOriginAfterRemux"));
 
 	if (autoRemux) {
-		ui->remuxInfo->setText(QString("自动封装至 MP4：已启用\n"
-					       "录制完成后自动删除原始录制文件，仅保留 MP4"));
+		ui->remuxInfo->setText(
+			QString("自动封装至 MP4：已启用\n当前录制格式：%1\n录制完成后自动删除 %1 原始文件，仅保留 MP4")
+				.arg(QString::fromUtf8(recFormat ? recFormat : "未知")));
 	} else {
 		ui->remuxInfo->setText("自动封装：未启用（可在 OBS 设置→高级中开启）");
 	}
 
 	/* ---------- recording path (read-only, same logic as OBS) ---------- */
 	const char *recPath;
-	const char *modeStr = config_get_string(config, "Output", "Mode");
-	bool simple = !modeStr || strcmp(modeStr, "Simple") == 0;
-	if (simple) {
+	const char *outMode = config_get_string(config, "Output", "Mode");
+	bool s = !outMode || strcmp(outMode, "Simple") == 0;
+	if (s) {
 		recPath = config_get_string(config, "SimpleOutput", "FilePath");
 	} else {
 		const char *recType = config_get_string(config, "AdvOut", "RecType");
