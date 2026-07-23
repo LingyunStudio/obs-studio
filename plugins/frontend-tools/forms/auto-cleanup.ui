@@ -76,7 +76,7 @@
       <item>
        <widget class="QCheckBox" name="deleteOriginAfterRemux">
         <property name="text">
-         <string>录制完成后自动删除原始 MKV 文件（保留 MP4）</string>
+         <string>录制完成后自动删除原始录制文件（保留 MP4）</string>
         </property>
        </widget>
       </item>
