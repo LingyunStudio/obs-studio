@@ -46,7 +46,7 @@ AutoCleanupDialog::AutoCleanupDialog(QWidget *parent) : QDialog(parent), ui(new 
 			"MKV → MP4 自动封装：录制完成后删除 MKV 原始文件（保留 MP4）");
 	} else {
 		ui->origDeleteLabel->setText(
-			QString("MKV → MP4 自动封装：（未启用 — 当前录制格式为 %1）")
+			QString("自动封装后清理：当前 OBS 录制格式为 %1，此选项不可用（需在 OBS 中设置 MKV 格式并勾选自动封装）")
 				.arg(QString::fromUtf8(recFormat ? recFormat : "未知")));
 	}
 
