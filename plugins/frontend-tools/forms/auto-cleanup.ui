@@ -29,23 +29,23 @@
     </widget>
    </item>
    <item>
-    <widget class="QLabel" name="recordingFolder">
+    <widget class="QLabel" name="recordingPathLabel">
      <property name="text">
-      <string>当前录制路径：</string>
+      <string>录制路径：读取中...</string>
      </property>
      <property name="wordWrap">true</property>
     </widget>
    </item>
    <item>
-    <widget class="QGroupBox" name="groupBoxShort">
+    <widget class="QGroupBox" name="shortClipGroup">
      <property name="title">
       <string>短视频误操作清理</string>
      </property>
-     <layout class="QFormLayout" name="formLayoutShort">
+     <layout class="QFormLayout" name="shortLayout">
       <item row="0" column="0" colspan="2">
        <widget class="QCheckBox" name="deleteShortClips">
         <property name="text">
-         <string>录制时长小于阈值的，删除所有文件（原始格式 + 封装后格式）</string>
+         <string>录制时长小于阈值，则删除所有文件（原始 + 封装后）</string>
         </property>
         <property name="checked">true</property>
        </widget>
@@ -53,7 +53,7 @@
       <item row="1" column="0">
        <widget class="QLabel" name="thresholdLabel">
         <property name="text">
-         <string>阈值（秒）：</string>
+         <string>阈值（秒）</string>
         </property>
        </widget>
       </item>
@@ -68,15 +68,15 @@
     </widget>
    </item>
    <item>
-    <widget class="QGroupBox" name="groupBoxRemux">
+    <widget class="QGroupBox" name="remuxGroup">
      <property name="title">
       <string>自动封装后清理</string>
      </property>
      <layout class="QVBoxLayout" name="remuxLayout">
       <item>
-       <widget class="QLabel" name="origDeleteLabel">
+       <widget class="QLabel" name="remuxInfo">
         <property name="text">
-         <string>检测 OBS 录制设置中...</string>
+         <string>检测中...</string>
         </property>
         <property name="wordWrap">true</property>
        </widget>

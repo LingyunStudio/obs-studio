@@ -17,9 +17,9 @@ private:
 	~AutoCleanup() override;
 
 	void OnRecordingStopped();
-	void CheckForMp4();
+	void CheckForRemux();
 	void HandleFiles();
-	void DeleteOriginWithRetry(int retriesLeft);
+	void DeleteWithRetry(const QString &path, int retriesLeft);
 	void DeleteFile(const QString &path);
 
 	bool enabled = true;
@@ -27,11 +27,10 @@ private:
 	bool deleteOriginAfterRemux = false;
 	int shortClipThreshold = 10;
 
-	QTimer *mp4PollTimer = nullptr;
+	QTimer *pollTimer = nullptr;
+	static int pollCount;
 
 	QString originPath;
-	QString mp4Path;
-	qint64 recordStartTime = 0;
-
-	static int mp4PollCount;
+	QString remuxPath;
+	qint64 recordStartMs = 0;
 };
