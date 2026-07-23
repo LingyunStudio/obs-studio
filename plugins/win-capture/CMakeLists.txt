@@ -48,6 +48,9 @@ target_sources(
     nt-stuff.c
     nt-stuff.h
     plugin-main.c
+    region-capture.c
+    region-picker.c
+    region-picker.h
     window-capture.c
 )
 
@@ -63,6 +66,7 @@ target_link_libraries(
   win-capture
   PRIVATE
     OBS::file-updater
+    OBS::frontend-api
     OBS::hook-config
     OBS::inject-library
     OBS::ipc-util

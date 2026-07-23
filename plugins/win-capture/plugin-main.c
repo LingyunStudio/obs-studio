@@ -26,6 +26,8 @@ extern struct obs_source_info duplicator_capture_info;
 extern struct obs_source_info monitor_capture_info;
 extern struct obs_source_info window_capture_info;
 extern struct obs_source_info game_capture_info;
+extern struct obs_source_info region_capture_info;
+extern void region_capture_register_procs(void);
 
 static HANDLE init_hooks_thread = NULL;
 static update_info_t *update_info = NULL;
@@ -137,10 +139,13 @@ bool obs_module_load(void)
 	if (graphics_uses_d3d11)
 		wgc_supported = win_version_compare(&ver, &win1903) >= 0;
 
-	if (win8_or_above && graphics_uses_d3d11)
+	if (win8_or_above && graphics_uses_d3d11) {
 		obs_register_source(&duplicator_capture_info);
-	else
+		obs_register_source(&region_capture_info);
+		region_capture_register_procs();
+	} else {
 		obs_register_source(&monitor_capture_info);
+	}
 
 	obs_register_source(&window_capture_info);
 
