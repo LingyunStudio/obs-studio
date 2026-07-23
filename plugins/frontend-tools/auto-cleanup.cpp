@@ -94,30 +94,20 @@ void AutoCleanup::OnRecordingStopped()
 	remuxPath.clear();
 
 	if (autoRemux && recFormat) {
-		/* delete the most recent recording — originPath is already set to
-	 * the latest file in the recording folder; renamed-name files are the
-	 * standard OBS output pattern so they will be picked up as the
-	 * most recent entry. */
-	static const char *remuxable[] = {"mkv", "flv", "mov", nullptr};
-		bool canRemux = false;
-		for (int i = 0; remuxable[i]; i++) {
-			if (strcmp(recFormat, remuxable[i]) == 0) {
-				canRemux = true;
-				break;
-			}
-		}
-		if (canRemux) {
-			QString suffix = QString(".%1").arg(recFormat);
-			remuxPath = originPath;
-			remuxPath.replace(suffix, ".mp4");
-			if (!QFileInfo::exists(remuxPath)) {
-				pollCount = 0;
-				pollTimer = new QTimer(this);
-				pollTimer->setInterval(1000);
-				QObject::connect(pollTimer, &QTimer::timeout, this, &AutoCleanup::CheckForRemux);
-				pollTimer->start();
-				return;
-			}
+		/* OBS AutoRemux runs for any format, replacing the suffix with .mp4.
+		 * Detect the target path: the remuxed file has the same name as the
+		 * original, but with a .mp4 suffix. */
+		QFileInfo fi(originPath);
+		QString baseName = fi.completeBaseName();
+		QDir recDir = fi.absoluteDir();
+		remuxPath = recDir.absoluteFilePath(baseName + ".mp4");
+		if (remuxPath != originPath && !QFileInfo::exists(remuxPath)) {
+			pollCount = 0;
+			pollTimer = new QTimer(this);
+			pollTimer->setInterval(1000);
+			QObject::connect(pollTimer, &QTimer::timeout, this, &AutoCleanup::CheckForRemux);
+			pollTimer->start();
+			return;
 		}
 	}
 
@@ -150,16 +140,15 @@ void AutoCleanup::HandleFiles()
 	bool isShort = duration > 0 && duration < (qint64)shortClipThreshold * 1000;
 
 	if (isShort && deleteShortClips) {
-		/* short clip: delete everything, but retry the origin file
-		 * in case OBS still holds a lock during the brief post-stop
-		 * remux setup */
+		/* short clip: delete everything — retry the origin file in case
+		 * OBS still holds a lock during the brief post-stop remux setup */
 		os_sleep_ms(500);
 		DeleteWithRetry(originPath, 15);
 		DeleteFile(remuxPath);
 		return;
 	}
 
-	/* normal recording, auto-remux active: delete original MKV after remux */
+	/* normal recording, auto-remux active: delete original after remux */
 	if (!remuxPath.isEmpty() && deleteOriginAfterRemux) {
 		DeleteWithRetry(originPath, 30);
 	}
