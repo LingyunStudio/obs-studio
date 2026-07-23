@@ -37,7 +37,6 @@ void AutoCleanup::LoadConfig()
 {
 	config_t *config = obs_frontend_get_profile_config();
 	enabled = config_get_bool(config, "AutoCleanup", "Enabled");
-	applyToAllFormats = config_get_bool(config, "AutoCleanup", "ApplyToAllFormats");
 	deleteShortClips = config_get_bool(config, "AutoCleanup", "DeleteShortClips");
 	deleteOriginAfterRemux = config_get_bool(config, "AutoCleanup", "DeleteOriginAfterRemux");
 	shortClipThreshold = (int)config_get_int(config, "AutoCleanup", "ShortClipThreshold");
@@ -137,25 +136,15 @@ void AutoCleanup::HandleFiles()
 	bool isShort = duration > 0 && duration < (qint64)shortClipThreshold * 1000;
 
 	if (isShort && deleteShortClips) {
-		/* short clip: delete everything */
 		os_sleep_ms(500);
 		DeleteFile(originPath);
 		DeleteFile(mp4Path);
 		return;
 	}
 
-	/* normal recording with auto-remux: user opted to delete the original
-	 * file after remux, delete it (retry, may be locked until remux finishes) */
+	/* normal recording, auto-remux (mkv→mp4): delete original after remux */
 	if (!mp4Path.isEmpty() && deleteOriginAfterRemux) {
 		DeleteOriginWithRetry(30);
-		return;
-	}
-
-	/* normal recording, no auto-remux, applyToAllFormats enabled:
-	 * delete the original file (no retry needed — OBS has already released it) */
-	if (applyToAllFormats && !isShort) {
-		os_sleep_ms(250);
-		DeleteFile(originPath);
 	}
 }
 

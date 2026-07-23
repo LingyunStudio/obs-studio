@@ -23,7 +23,6 @@ private:
 	void DeleteFile(const QString &path);
 
 	bool enabled = true;
-	bool applyToAllFormats = false;
 	bool deleteShortClips = true;
 	bool deleteOriginAfterRemux = false;
 	int shortClipThreshold = 10;

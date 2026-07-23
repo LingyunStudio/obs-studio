@@ -15,8 +15,6 @@ public:
 	AutoCleanupDialog(QWidget *parent);
 	~AutoCleanupDialog() override;
 
-	friend void updateRemuxUI(AutoCleanupDialog *);
-
 private slots:
 	void SaveSettings();
 };

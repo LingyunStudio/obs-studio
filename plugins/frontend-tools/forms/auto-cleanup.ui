@@ -7,13 +7,13 @@
     <x>0</x>
     <y>0</y>
     <width>560</width>
-    <height>400</height>
+    <height>380</height>
    </rect>
   </property>
   <property name="minimumSize">
    <size>
     <width>560</width>
-    <height>400</height>
+    <height>380</height>
    </size>
   </property>
   <property name="windowTitle">
@@ -21,40 +21,31 @@
   </property>
   <layout class="QVBoxLayout" name="mainLayout">
    <item>
-    <widget class="QGroupBox" name="groupBox">
-     <property name="title">
-      <string>基本设置</string>
+    <widget class="QCheckBox" name="enableAutoCleanup">
+     <property name="text">
+      <string>启用录制后自动清理</string>
      </property>
-     <layout class="QVBoxLayout" name="basicLayout">
-      <item>
-       <widget class="QCheckBox" name="enableAutoCleanup">
-        <property name="text">
-         <string>启用自动清理</string>
-        </property>
-        <property name="checked">true</property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QLabel" name="recordingFolder">
-        <property name="text">
-         <string>当前录制路径：自动读取OBS设置</string>
-        </property>
-        <property name="wordWrap">true</property>
-       </widget>
-      </item>
-     </layout>
+     <property name="checked">true</property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="recordingFolder">
+     <property name="text">
+      <string>当前录制路径：</string>
+     </property>
+     <property name="wordWrap">true</property>
     </widget>
    </item>
    <item>
     <widget class="QGroupBox" name="groupBoxShort">
      <property name="title">
-      <string>短录制清理</string>
+      <string>短视频误操作清理</string>
      </property>
      <layout class="QFormLayout" name="formLayoutShort">
       <item row="0" column="0" colspan="2">
        <widget class="QCheckBox" name="deleteShortClips">
         <property name="text">
-         <string>短录制彻底删除所有文件（不保留任何格式）</string>
+         <string>录制时长小于阈值的，删除所有文件（原始格式 + 封装后格式）</string>
         </property>
         <property name="checked">true</property>
        </widget>
@@ -62,7 +53,7 @@
       <item row="1" column="0">
        <widget class="QLabel" name="thresholdLabel">
         <property name="text">
-         <string>短录制阈值（秒）：</string>
+         <string>阈值（秒）：</string>
         </property>
        </widget>
       </item>
@@ -83,25 +74,17 @@
      </property>
      <layout class="QVBoxLayout" name="remuxLayout">
       <item>
-       <widget class="QCheckBox" name="deleteOriginAfterRemux">
+       <widget class="QLabel" name="origDeleteLabel">
         <property name="text">
-         <string>检测中...</string>
+         <string>检测 OBS 录制设置中...</string>
         </property>
+        <property name="wordWrap">true</property>
        </widget>
       </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
-    <widget class="QGroupBox" name="groupBoxAllFormats">
-     <property name="title">
-      <string>通用清理（未开启自动封装时使用）</string>
-     </property>
-     <layout class="QVBoxLayout" name="allFormatsLayout">
       <item>
-       <widget class="QCheckBox" name="applyToAllFormats">
+       <widget class="QCheckBox" name="deleteOriginAfterRemux">
         <property name="text">
-         <string>录制完成后自动删除原始录制文件（适用于所有录制格式）</string>
+         <string>录制完成后自动删除原始 MKV 文件（保留 MP4）</string>
         </property>
        </widget>
       </item>
