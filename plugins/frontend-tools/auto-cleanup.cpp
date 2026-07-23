@@ -86,6 +86,10 @@ void AutoCleanup::OnRecordingStopped()
 		return;
 
 	originPath = recentFiles.first().absoluteFilePath();
+	blog(LOG_INFO, "[auto-cleanup] Recording stopped, file=%s, duration=%lldms shortThreshold=%ds",
+	     originPath.toUtf8().constData(),
+	     (long long)((os_gettime_ns() / 1000000) - recordStartMs),
+	     shortClipThreshold);
 
 	/* detect remux suffix: OBS AutoRemux remuxes mkv/flv/mov → mp4 */
 	bool autoRemux = config_get_bool(config, "Video", "AutoRemux");
@@ -139,10 +143,12 @@ void AutoCleanup::HandleFiles()
 
 	bool isShort = duration > 0 && duration < (qint64)shortClipThreshold * 1000;
 
+	blog(LOG_INFO, "[auto-cleanup] HandleFiles duration=%lldms isShort=%d deleteShort=%d deleteRemux=%d",
+	     (long long)duration, (int)isShort, (int)deleteShortClips, (int)deleteOriginAfterRemux);
+
 	if (isShort && deleteShortClips) {
-		/* short clip: delete everything — retry the origin file in case
-		 * OBS still holds a lock during the brief post-stop remux setup */
 		os_sleep_ms(500);
+		blog(LOG_INFO, "[auto-cleanup] Short clip detected, deleting origin and remux files");
 		DeleteWithRetry(originPath, 15);
 		DeleteFile(remuxPath);
 		return;
@@ -150,6 +156,7 @@ void AutoCleanup::HandleFiles()
 
 	/* normal recording, auto-remux active: delete original after remux */
 	if (!remuxPath.isEmpty() && deleteOriginAfterRemux) {
+		blog(LOG_INFO, "[auto-cleanup] Remux detected, deleting origin file");
 		DeleteWithRetry(originPath, 30);
 	}
 }
