@@ -62,6 +62,10 @@ void AutoCleanup::OnRecordingStopped()
 	if (!deleteShortClips && !deleteOriginAfterRemux)
 		return;
 
+	/* OBS may still be finalising the file when the event fires;
+	 * wait half a second before probing the recording folder */
+	os_sleep_ms(500);
+
 	config_t *config = obs_frontend_get_profile_config();
 
 	/* determine recording path (same logic as OBSBasic::on_actionShow_Recordings_triggered) */
@@ -147,8 +151,6 @@ void AutoCleanup::HandleFiles()
 	     (long long)duration, (int)isShort, (int)deleteShortClips, (int)deleteOriginAfterRemux);
 
 	if (isShort && deleteShortClips) {
-		os_sleep_ms(500);
-		blog(LOG_INFO, "[auto-cleanup] Short clip detected, deleting origin and remux files");
 		DeleteWithRetry(originPath, 15);
 		DeleteFile(remuxPath);
 		return;
@@ -156,7 +158,6 @@ void AutoCleanup::HandleFiles()
 
 	/* normal recording, auto-remux active: delete original after remux */
 	if (!remuxPath.isEmpty() && deleteOriginAfterRemux) {
-		blog(LOG_INFO, "[auto-cleanup] Remux detected, deleting origin file");
 		DeleteWithRetry(originPath, 30);
 	}
 }
