@@ -17,6 +17,7 @@ private:
 	~AutoCleanup() override;
 
 	void OnRecordingStopped();
+	void TryHandleAfterRemux();
 	void CheckForRemux();
 	void HandleFiles();
 	void DeleteWithRetry(const QString &path, int retriesLeft);
@@ -32,4 +33,5 @@ private:
 	QString originPath;
 	QString remuxPath;
 	qint64 recordStartMs = 0;
+	qint64 recordDurationMs = 0;
 };

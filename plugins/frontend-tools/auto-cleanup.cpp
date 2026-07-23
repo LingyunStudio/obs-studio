@@ -49,9 +49,11 @@ void AutoCleanup::OnFrontendEvent(enum obs_frontend_event event, void *param)
 	AutoCleanup *self = static_cast<AutoCleanup *>(param);
 
 	if (event == OBS_FRONTEND_EVENT_RECORDING_STARTED) {
-		self->recordStartMs = os_gettime_ns() / 1000000;
+		self->recordStartMs = 0;
+		self->recordDurationMs = 0;
 
 	} else if (event == OBS_FRONTEND_EVENT_RECORDING_STOPPED) {
+		self->recordDurationMs = (os_gettime_ns() / 1000000) - self->recordStartMs;
 		self->OnRecordingStopped();
 	}
 }
@@ -90,21 +92,25 @@ void AutoCleanup::OnRecordingStopped()
 		return;
 
 	originPath = recentFiles.first().absoluteFilePath();
-	blog(LOG_INFO, "[auto-cleanup] Recording stopped, file=%s, duration=%lldms shortThreshold=%ds",
-	     originPath.toUtf8().constData(),
-	     (long long)((os_gettime_ns() / 1000000) - recordStartMs),
-	     shortClipThreshold);
 
-	/* detect remux suffix: OBS AutoRemux remuxes mkv/flv/mov → mp4 */
+	/* try to handle files now — if a remux is pending, defer until the
+	 * remuxed MP4 appears */
+	TryHandleAfterRemux();
+}
+
+void AutoCleanup::TryHandleAfterRemux()
+{
+	config_t *config = obs_frontend_get_profile_config();
+
+	const char *mode = config_get_string(config, "Output", "Mode");
+	bool simple = !mode || strcmp(mode, "Simple") == 0;
+
 	bool autoRemux = config_get_bool(config, "Video", "AutoRemux");
 	const char *recFormat = config_get_string(config, simple ? "SimpleOutput" : "AdvOut", "RecFormat2");
 
 	remuxPath.clear();
 
 	if (autoRemux && recFormat) {
-		/* OBS AutoRemux runs for any format, replacing the suffix with .mp4.
-		 * Detect the target path: the remuxed file has the same name as the
-		 * original, but with a .mp4 suffix. */
 		QFileInfo fi(originPath);
 		QString baseName = fi.completeBaseName();
 		QDir recDir = fi.absoluteDir();
@@ -119,7 +125,7 @@ void AutoCleanup::OnRecordingStopped()
 		}
 	}
 
-	/* no remux (or already completed) — handle files now */
+	/* no remux pending — handle files now */
 	HandleFiles();
 }
 
@@ -141,14 +147,10 @@ void AutoCleanup::CheckForRemux()
 
 void AutoCleanup::HandleFiles()
 {
-	qint64 duration = 0;
-	if (recordStartMs > 0)
-		duration = (os_gettime_ns() / 1000000) - recordStartMs;
+	if (recordDurationMs <= 0)
+		return;
 
-	bool isShort = duration > 0 && duration < (qint64)shortClipThreshold * 1000;
-
-	blog(LOG_INFO, "[auto-cleanup] HandleFiles duration=%lldms isShort=%d deleteShort=%d deleteRemux=%d",
-	     (long long)duration, (int)isShort, (int)deleteShortClips, (int)deleteOriginAfterRemux);
+	bool isShort = recordDurationMs < (qint64)shortClipThreshold * 1000;
 
 	if (isShort && deleteShortClips) {
 		DeleteWithRetry(originPath, 15);
