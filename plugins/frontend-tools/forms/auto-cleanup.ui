@@ -21,14 +21,6 @@
   </property>
   <layout class="QVBoxLayout" name="mainLayout">
    <item>
-    <widget class="QCheckBox" name="enableAutoCleanup">
-     <property name="text">
-      <string>启用录制后自动清理</string>
-     </property>
-     <property name="checked">true</property>
-    </widget>
-   </item>
-   <item>
     <widget class="QLabel" name="recordingPathLabel">
      <property name="text">
       <string>录制路径：读取中...</string>

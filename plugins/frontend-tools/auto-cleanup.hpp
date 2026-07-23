@@ -22,7 +22,6 @@ private:
 	void DeleteWithRetry(const QString &path, int retriesLeft);
 	void DeleteFile(const QString &path);
 
-	bool enabled = true;
 	bool deleteShortClips = true;
 	bool deleteOriginAfterRemux = false;
 	int shortClipThreshold = 10;

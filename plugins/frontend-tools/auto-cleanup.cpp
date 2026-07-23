@@ -36,7 +36,6 @@ AutoCleanup::~AutoCleanup()
 void AutoCleanup::LoadConfig()
 {
 	config_t *config = obs_frontend_get_profile_config();
-	enabled = config_get_bool(config, "AutoCleanup", "Enabled");
 	deleteShortClips = config_get_bool(config, "AutoCleanup", "DeleteShortClips");
 	deleteOriginAfterRemux = config_get_bool(config, "AutoCleanup", "DeleteOriginAfterRemux");
 	shortClipThreshold = (int)config_get_int(config, "AutoCleanup", "ShortClipThreshold");
@@ -60,7 +59,7 @@ void AutoCleanup::OnFrontendEvent(enum obs_frontend_event event, void *param)
 void AutoCleanup::OnRecordingStopped()
 {
 	LoadConfig();
-	if (!enabled)
+	if (!deleteShortClips && !deleteOriginAfterRemux)
 		return;
 
 	config_t *config = obs_frontend_get_profile_config();
@@ -88,20 +87,26 @@ void AutoCleanup::OnRecordingStopped()
 
 	originPath = recentFiles.first().absoluteFilePath();
 
-	/* determine whether auto-remux will run */
+	/* detect remux suffix: OBS AutoRemux remuxes mkv/flv/mov → mp4 */
 	bool autoRemux = config_get_bool(config, "Video", "AutoRemux");
 	const char *recFormat = config_get_string(config, simple ? "SimpleOutput" : "AdvOut", "RecFormat2");
 
 	remuxPath.clear();
 
-	if (autoRemux) {
-		/* Remux only runs for MKV (standard) — OBSBasic::AutoRemux checks
-		 * suffix, which is mkv if RecFormat2 is mkv (or ignored for ffmpeg) */
-		if (recFormat && strcmp(recFormat, "mkv") == 0) {
+	if (autoRemux && recFormat) {
+		static const char *remuxable[] = {"mkv", "flv", "mov", nullptr};
+		bool canRemux = false;
+		for (int i = 0; remuxable[i]; i++) {
+			if (strcmp(recFormat, remuxable[i]) == 0) {
+				canRemux = true;
+				break;
+			}
+		}
+		if (canRemux) {
+			QString suffix = QString(".%1").arg(recFormat);
 			remuxPath = originPath;
-			remuxPath.replace(".mkv", ".mp4");
+			remuxPath.replace(suffix, ".mp4");
 			if (!QFileInfo::exists(remuxPath)) {
-				/* remux hasn't finished yet — poll */
 				pollCount = 0;
 				pollTimer = new QTimer(this);
 				pollTimer->setInterval(1000);
