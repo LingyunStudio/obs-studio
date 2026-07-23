@@ -21,6 +21,7 @@
 #include "ui-config.h"
 
 #include "ColorSelect.hpp"
+#include "FloatingBall.hpp"
 #include "OBSBasicControls.hpp"
 #include "OBSBasicStats.hpp"
 #include "plugin-manager/PluginManager.hpp"
@@ -1278,6 +1279,13 @@ void OBSBasic::OBSInit()
 
 	SystemTray(true);
 
+	SetFloatingBallEnabled(config_get_bool(App()->GetUserConfig(), "BasicWindow", "FloatingBallEnabled"));
+
+	/* region canvas tracking: evaluate the startup scene (also heals the
+	 * canvas if OBS was closed while a region canvas was applied) */
+	obs_frontend_add_event_callback(OnRegionCanvasEvent, this);
+	UpdateRegionCanvas();
+
 	TaskbarOverlayInit();
 
 #ifdef __APPLE__
@@ -1580,6 +1588,225 @@ static inline enum video_colorspace GetVideoColorSpaceFromName(const char *name)
 	}
 
 	return colorspace;
+}
+
+void OBSBasic::SetFloatingBallEnabled(bool enabled)
+{
+	if (enabled) {
+		if (!floatingBall)
+			floatingBall = new FloatingBall(nullptr);
+		floatingBall->show();
+	} else if (floatingBall) {
+		floatingBall->hide();
+	}
+}
+
+/* ------------------------------------------------------------------------- */
+/* Region canvas tracking: canvas follows the current scene's region source  */
+
+static bool FindRegionSourceCb(obs_scene_t *, obs_sceneitem_t *item, void *param)
+{
+	obs_source_t **found = (obs_source_t **)param;
+	obs_source_t *source = obs_sceneitem_get_source(item);
+	if (source && strcmp(obs_source_get_id(source), "region_capture") == 0) {
+		OBSDataAutoRelease settings = obs_source_get_settings(source);
+		long w = (long)obs_data_get_int(settings, "region_w");
+		long h = (long)obs_data_get_int(settings, "region_h");
+		if (w > 0 && h > 0) {
+			*found = source;
+			return false;
+		}
+	}
+	return true;
+}
+
+struct RegionItemSearch {
+	obs_source_t *source;
+	obs_sceneitem_t *item;
+};
+
+static bool FindRegionItemCb(obs_scene_t *, obs_sceneitem_t *item, void *param)
+{
+	RegionItemSearch *search = (RegionItemSearch *)param;
+	if (obs_sceneitem_get_source(item) == search->source) {
+		search->item = item;
+		return false;
+	}
+	return true;
+}
+
+struct AudioSourceSearch {
+	const char *sourceId;
+	bool found;
+};
+
+static bool FindAudioSourceCb(obs_scene_t *, obs_sceneitem_t *item, void *param)
+{
+	AudioSourceSearch *search = (AudioSourceSearch *)param;
+	obs_source_t *source = obs_sceneitem_get_source(item);
+	if (source && strcmp(obs_source_get_id(source), search->sourceId) == 0) {
+		search->found = true;
+		return false;
+	}
+	return true;
+}
+
+/* Region recordings are usually started in a hurry, so make sure the scene
+ * has default audio (desktop + mic) instead of recording silently. */
+static void EnsureAudioSourceInScene(obs_scene_t *scene, const char *sourceId, const char *name)
+{
+	AudioSourceSearch search = {sourceId, false};
+	obs_scene_enum_items(scene, FindAudioSourceCb, &search);
+	if (search.found)
+		return;
+
+	OBSDataAutoRelease settings = obs_data_create();
+	obs_data_set_string(settings, "device_id", "default");
+	OBSSourceAutoRelease source = obs_source_create(sourceId, name, settings, nullptr);
+	if (source)
+		obs_scene_add(scene, source);
+}
+
+void OBSBasic::OnRegionCanvasEvent(enum obs_frontend_event event, void *param)
+{
+	OBSBasic *self = static_cast<OBSBasic *>(param);
+
+	if (event == OBS_FRONTEND_EVENT_PROFILE_CHANGED) {
+		/* canvas configuration is per-profile; never restore values saved
+		 * for another profile, just drop the tracking flag */
+		config_t *user = App()->GetUserConfig();
+		config_set_bool(user, "BasicWindow", "RegionTrackApplied", false);
+		config_save_safe(user, "tmp", nullptr);
+		return;
+	}
+
+	if (event == OBS_FRONTEND_EVENT_SCENE_CHANGED || event == OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED ||
+	    event == OBS_FRONTEND_EVENT_RECORDING_STOPPED) {
+		self->UpdateRegionCanvas();
+	}
+}
+
+void OBSBasic::UpdateRegionCanvas()
+{
+	if (!api || isClosing())
+		return;
+
+	/* the video output cannot change while any output is active; when the
+	 * recording stops OBS_FRONTEND_EVENT_RECORDING_STOPPED re-triggers
+	 * this evaluation */
+	if (obs_frontend_recording_active() || obs_frontend_streaming_active() ||
+	    obs_frontend_replay_buffer_active() || obs_frontend_virtualcam_active())
+		return;
+
+	OBSSourceAutoRelease sceneSource = obs_frontend_get_current_scene();
+	obs_scene_t *scene = sceneSource ? obs_scene_from_source(sceneSource) : nullptr;
+
+	obs_source_t *regionSource = nullptr;
+	if (scene)
+		obs_scene_enum_items(scene, FindRegionSourceCb, &regionSource);
+
+	config_t *user = App()->GetUserConfig();
+	bool applied = config_get_bool(user, "BasicWindow", "RegionTrackApplied");
+
+	if (regionSource && !applied) {
+		ApplyRegionCanvas(regionSource);
+	} else if (!regionSource && applied) {
+		RestoreRegionCanvas();
+	} else if (regionSource && applied) {
+		/* already tracking: make sure the canvas matches this scene's
+		 * region (e.g. switching between two region scenes) */
+		ApplyRegionCanvas(regionSource);
+	}
+}
+
+void OBSBasic::ApplyRegionCanvas(obs_source_t *regionSource)
+{
+	OBSDataAutoRelease settings = obs_source_get_settings(regionSource);
+	long rw = (long)obs_data_get_int(settings, "region_w");
+	long rh = (long)obs_data_get_int(settings, "region_h");
+
+	/* matches what obs_reset_video enforces: width multiple of 4, even
+	 * height, at least 32x32 */
+	uint64_t outW = (uint64_t)(rw & ~3L);
+	uint64_t outH = (uint64_t)(rh & ~1L);
+	if (outW < 32 || outH < 32)
+		return;
+
+	config_t *profile = obs_frontend_get_profile_config();
+	config_t *user = App()->GetUserConfig();
+
+	if (!config_get_bool(user, "BasicWindow", "RegionTrackApplied")) {
+		/* remember the normal canvas so it can be restored when leaving
+		 * region scenes */
+		config_set_uint(user, "BasicWindow", "RegionTrackBaseCX", config_get_uint(profile, "Video", "BaseCX"));
+		config_set_uint(user, "BasicWindow", "RegionTrackBaseCY", config_get_uint(profile, "Video", "BaseCY"));
+		config_set_uint(user, "BasicWindow", "RegionTrackOutCX", config_get_uint(profile, "Video", "OutputCX"));
+		config_set_uint(user, "BasicWindow", "RegionTrackOutCY", config_get_uint(profile, "Video", "OutputCY"));
+		config_set_bool(user, "BasicWindow", "RegionTrackApplied", true);
+		config_save_safe(user, "tmp", nullptr);
+	}
+
+	if (config_get_uint(profile, "Video", "BaseCX") != outW || config_get_uint(profile, "Video", "BaseCY") != outH ||
+	    config_get_uint(profile, "Video", "OutputCX") != outW || config_get_uint(profile, "Video", "OutputCY") != outH) {
+		config_set_uint(profile, "Video", "BaseCX", outW);
+		config_set_uint(profile, "Video", "BaseCY", outH);
+		config_set_uint(profile, "Video", "OutputCX", outW);
+		config_set_uint(profile, "Video", "OutputCY", outH);
+		config_save_safe(profile, "tmp", nullptr);
+		obs_frontend_save();
+		obs_frontend_reset_video();
+	}
+
+	/* Fit the region item to the canvas after the (possible) reset: in
+	 * relative coordinate mode the rendered item scale depends on the
+	 * canvas height at the time the transform is set. */
+	OBSSourceAutoRelease sceneSource = obs_frontend_get_current_scene();
+	obs_scene_t *scene = sceneSource ? obs_scene_from_source(sceneSource) : nullptr;
+	if (scene) {
+		RegionItemSearch search = {regionSource, nullptr};
+		obs_scene_enum_items(scene, FindRegionItemCb, &search);
+		if (search.item) {
+			struct vec2 pos = {0.0f, 0.0f};
+			struct vec2 scale = {1.0f, 1.0f};
+			obs_sceneitem_set_bounds_type(search.item, OBS_BOUNDS_NONE);
+			obs_sceneitem_set_scale(search.item, &scale);
+			obs_sceneitem_set_pos(search.item, &pos);
+		}
+
+		EnsureAudioSourceInScene(scene, "wasapi_output_capture", QT_TO_UTF8(QTStr("RegionAudio.Desktop")));
+	}
+}
+
+void OBSBasic::RestoreRegionCanvas()
+{
+	config_t *profile = obs_frontend_get_profile_config();
+	config_t *user = App()->GetUserConfig();
+
+	uint64_t baseCX = config_get_uint(user, "BasicWindow", "RegionTrackBaseCX");
+	uint64_t baseCY = config_get_uint(user, "BasicWindow", "RegionTrackBaseCY");
+	uint64_t outCX = config_get_uint(user, "BasicWindow", "RegionTrackOutCX");
+	uint64_t outCY = config_get_uint(user, "BasicWindow", "RegionTrackOutCY");
+
+	/* never restore garbage */
+	if (baseCX < 32 || baseCY < 32 || outCX < 32 || outCY < 32) {
+		config_set_bool(user, "BasicWindow", "RegionTrackApplied", false);
+		config_save_safe(user, "tmp", nullptr);
+		return;
+	}
+
+	if (config_get_uint(profile, "Video", "BaseCX") != baseCX || config_get_uint(profile, "Video", "BaseCY") != baseCY ||
+	    config_get_uint(profile, "Video", "OutputCX") != outCX || config_get_uint(profile, "Video", "OutputCY") != outCY) {
+		config_set_uint(profile, "Video", "BaseCX", baseCX);
+		config_set_uint(profile, "Video", "BaseCY", baseCY);
+		config_set_uint(profile, "Video", "OutputCX", outCX);
+		config_set_uint(profile, "Video", "OutputCY", outCY);
+		config_save_safe(profile, "tmp", nullptr);
+		obs_frontend_save();
+		obs_frontend_reset_video();
+	}
+
+	config_set_bool(user, "BasicWindow", "RegionTrackApplied", false);
+	config_save_safe(user, "tmp", nullptr);
 }
 
 int OBSBasic::ResetVideo()
@@ -1978,6 +2205,8 @@ void OBSBasic::closeWindow()
 	blog(LOG_INFO, SHUTDOWN_SEPARATOR);
 
 	isClosing_ = true;
+
+	obs_frontend_remove_event_callback(OnRegionCanvasEvent, this);
 
 	/* While closing, a resize event to OBSQTDisplay could be triggered.
 	 * The graphics thread on macOS dispatches a lambda function to be
