@@ -79,7 +79,6 @@
          <string>录制完成后自动删除原始录制文件（保留 MP4）</string>
         </property>
        </widget>
-       </widget>
       </item>
      </layout>
     </widget>
