@@ -37,6 +37,10 @@ target_sources(
     $<$<PLATFORM_ID:Windows>:captions.hpp>
     auto-scene-switcher.cpp
     auto-scene-switcher.hpp
+    auto-cleanup.cpp
+    auto-cleanup.hpp
+    auto-cleanup-dialog.cpp
+    auto-cleanup-dialog.hpp
     frontend-tools.c
     output-timer.cpp
     output-timer.hpp
@@ -45,7 +49,7 @@ target_sources(
 
 target_sources(
   frontend-tools
-  PRIVATE forms/auto-scene-switcher.ui forms/captions.ui forms/output-timer.ui forms/scripts.ui
+  PRIVATE forms/auto-cleanup.ui forms/auto-scene-switcher.ui forms/captions.ui forms/output-timer.ui forms/scripts.ui
 )
 
 target_compile_options(
