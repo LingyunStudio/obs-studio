@@ -94,7 +94,11 @@ void AutoCleanup::OnRecordingStopped()
 	remuxPath.clear();
 
 	if (autoRemux && recFormat) {
-		static const char *remuxable[] = {"mkv", "flv", "mov", nullptr};
+		/* delete the most recent recording — originPath is already set to
+	 * the latest file in the recording folder; renamed-name files are the
+	 * standard OBS output pattern so they will be picked up as the
+	 * most recent entry. */
+	static const char *remuxable[] = {"mkv", "flv", "mov", nullptr};
 		bool canRemux = false;
 		for (int i = 0; remuxable[i]; i++) {
 			if (strcmp(recFormat, remuxable[i]) == 0) {
@@ -146,9 +150,11 @@ void AutoCleanup::HandleFiles()
 	bool isShort = duration > 0 && duration < (qint64)shortClipThreshold * 1000;
 
 	if (isShort && deleteShortClips) {
-		/* short clip: delete everything */
+		/* short clip: delete everything, but retry the origin file
+		 * in case OBS still holds a lock during the brief post-stop
+		 * remux setup */
 		os_sleep_ms(500);
-		DeleteFile(originPath);
+		DeleteWithRetry(originPath, 15);
 		DeleteFile(remuxPath);
 		return;
 	}
