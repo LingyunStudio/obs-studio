@@ -19,19 +19,19 @@ private:
 	void OnRecordingStopped();
 	void CheckForMp4();
 	void HandleFiles();
-	void DeleteMkv(int retriesLeft);
+	void DeleteOriginWithRetry(int retriesLeft);
 	void DeleteFile(const QString &path);
 
 	bool enabled = true;
+	bool applyToAllFormats = false;
 	bool deleteShortClips = true;
+	bool deleteOriginAfterRemux = false;
 	int shortClipThreshold = 10;
-	QString recordingFolder;
 
 	QTimer *mp4PollTimer = nullptr;
 
-	QString mkvPath;
+	QString originPath;
 	QString mp4Path;
-	QString originSuffix;
 	qint64 recordStartTime = 0;
 
 	static int mp4PollCount;

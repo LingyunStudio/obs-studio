@@ -37,16 +37,13 @@ void AutoCleanup::LoadConfig()
 {
 	config_t *config = obs_frontend_get_profile_config();
 	enabled = config_get_bool(config, "AutoCleanup", "Enabled");
+	applyToAllFormats = config_get_bool(config, "AutoCleanup", "ApplyToAllFormats");
 	deleteShortClips = config_get_bool(config, "AutoCleanup", "DeleteShortClips");
+	deleteOriginAfterRemux = config_get_bool(config, "AutoCleanup", "DeleteOriginAfterRemux");
 	shortClipThreshold = (int)config_get_int(config, "AutoCleanup", "ShortClipThreshold");
-	recordingFolder = QString::fromUtf8(config_get_string(config, "AutoCleanup", "RecordingFolder"));
 
 	if (shortClipThreshold < 1)
 		shortClipThreshold = 10;
-	if (recordingFolder.isEmpty())
-		recordingFolder = QString::fromUtf8(config_get_string(config, "AdvOut", "RecFilePath"));
-	if (recordingFolder.isEmpty())
-		recordingFolder = QString::fromUtf8(config_get_string(config, "SimpleOutput", "FilePath"));
 }
 
 void AutoCleanup::OnFrontendEvent(enum obs_frontend_event event, void *param)
@@ -69,34 +66,42 @@ void AutoCleanup::OnRecordingStopped()
 
 	config_t *config = obs_frontend_get_profile_config();
 
-	/* determine the recording folder from OBS output settings */
-	QString folder = recordingFolder;
+	/* determine the recording folder */
+	const char *recPath = config_get_string(config, "AdvOut", "RecFilePath");
+	if (!recPath || !*recPath)
+		recPath = config_get_string(config, "SimpleOutput", "FilePath");
+	QString folder = QString::fromUtf8(recPath && *recPath ? recPath : "");
 	if (folder.isEmpty())
-		folder = QString::fromUtf8(config_get_string(config, "AdvOut", "RecFilePath"));
-	if (folder.isEmpty())
-		folder = QString::fromUtf8(config_get_string(config, "SimpleOutput", "FilePath"));
+		return;
+
+	/* look for the most recent file in the recording folder */
 	QDir dir(folder);
-	QFileInfoList recentFiles = dir.entryInfoList({}, QDir::Files, QDir::Time);
+	QFileInfoList recentFiles = dir.entryInfoList(QDir::Files, QDir::Time);
 	if (recentFiles.isEmpty())
 		return;
 
-	QString originPath = recentFiles.first().absoluteFilePath();
-	originSuffix = QFileInfo(originPath).suffix().toLower();
+	originPath = recentFiles.first().absoluteFilePath();
 
 	/* detect auto-remux: [Video] AutoRemux=true, format is mkv -> target mp4 */
 	bool autoRemux = config_get_bool(config, "Video", "AutoRemux");
-	const char *recFormat = config_get_string(config, "AdvOut", "RecFormat");
+	const char *recFormat = config_get_string(config, "AdvOut", "RecFormat2");
 	if (!recFormat || !*recFormat)
-		recFormat = config_get_string(config, "SimpleOutput", "RecFormat");
+		recFormat = config_get_string(config, "SimpleOutput", "RecFormat2");
 
-	mkvPath = originPath;
 	mp4Path.clear();
+	bool waitForRemux = false;
 
 	if (autoRemux && recFormat && strcmp(recFormat, "mkv") == 0) {
 		mp4Path = originPath;
 		mp4Path.replace(".mkv", ".mp4");
-		mp4PollCount = 0;
+		if (!QFileInfo::exists(mp4Path)) {
+			waitForRemux = true;
+		}
+	}
+
+	if (waitForRemux) {
 		/* start polling for the remuxed MP4 to appear */
+		mp4PollCount = 0;
 		mp4PollTimer = new QTimer(this);
 		mp4PollTimer->setInterval(1000);
 		QObject::connect(mp4PollTimer, &QTimer::timeout, this, &AutoCleanup::CheckForMp4);
@@ -115,9 +120,7 @@ void AutoCleanup::CheckForMp4()
 		mp4PollTimer->stop();
 		mp4PollTimer->deleteLater();
 		mp4PollTimer = nullptr;
-
 		HandleFiles();
-
 	} else if (mp4PollCount > 600) {
 		mp4PollTimer->stop();
 		mp4PollTimer->deleteLater();
@@ -134,16 +137,25 @@ void AutoCleanup::HandleFiles()
 	bool isShort = duration > 0 && duration < (qint64)shortClipThreshold * 1000;
 
 	if (isShort && deleteShortClips) {
+		/* short clip: delete everything */
 		os_sleep_ms(500);
-		DeleteFile(mkvPath);
-		if (!mp4Path.isEmpty())
-			DeleteFile(mp4Path);
-	} else {
-		/* normal recording: if remux was configured, delete the original file,
-		 * keeping only the remuxed one */
-		if (!mp4Path.isEmpty()) {
-			DeleteMkv(30);
-		}
+		DeleteFile(originPath);
+		DeleteFile(mp4Path);
+		return;
+	}
+
+	/* normal recording with auto-remux: user opted to delete the original
+	 * file after remux, delete it (retry, may be locked until remux finishes) */
+	if (!mp4Path.isEmpty() && deleteOriginAfterRemux) {
+		DeleteOriginWithRetry(30);
+		return;
+	}
+
+	/* normal recording, no auto-remux, applyToAllFormats enabled:
+	 * delete the original file (no retry needed — OBS has already released it) */
+	if (applyToAllFormats && !isShort) {
+		os_sleep_ms(250);
+		DeleteFile(originPath);
 	}
 }
 
@@ -160,24 +172,25 @@ void AutoCleanup::DeleteFile(const QString &path)
 	     path.toUtf8().constData());
 }
 
-void AutoCleanup::DeleteMkv(int retriesLeft)
+void AutoCleanup::DeleteOriginWithRetry(int retriesLeft)
 {
 	if (retriesLeft <= 0) {
-		blog(LOG_WARNING, "[auto-cleanup] MKV delete failed after retries: %s", mkvPath.toUtf8().constData());
+		blog(LOG_WARNING, "[auto-cleanup] Delete origin file failed after retries: %s",
+		     originPath.toUtf8().constData());
 		return;
 	}
 
-	if (!QFile::exists(mkvPath))
+	if (!QFile::exists(originPath))
 		return;
 
-	QFile file(mkvPath);
+	QFile file(originPath);
 	if (file.remove()) {
-		blog(LOG_INFO, "[auto-cleanup] MKV deleted: %s", mkvPath.toUtf8().constData());
+		blog(LOG_INFO, "[auto-cleanup] Origin file deleted: %s", originPath.toUtf8().constData());
 		return;
 	}
 
 	/* still locked; retry after 2 seconds */
-	QTimer::singleShot(2000, this, [this, retriesLeft]() { DeleteMkv(retriesLeft - 1); });
+	QTimer::singleShot(2000, this, [this, retriesLeft]() { DeleteOriginWithRetry(retriesLeft - 1); });
 }
 
 /* ------------------------------------------------------------------------- */
