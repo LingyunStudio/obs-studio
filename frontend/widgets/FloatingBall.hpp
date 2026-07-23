@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <obs.h>
+
 #include <QPointer>
 #include <QPoint>
 #include <QTimer>
@@ -47,12 +49,15 @@ private slots:
 	void onTick();
 	void toggleRecording();
 	void startRegionRecord();
+	void onRegionChanged(const QRect &region);
 	void onRegionConfirmed(const QRect &region);
 	void showContextMenu(const QPoint &globalPos);
 
 private:
 	QString elapsedText() const;
 	void finishRegionRecord();
+	bool createTempSceneAndSwitch(const char *monitorId, long rx, long ry, long rw, long rh,
+				      long ax, long ay, bool startRecording);
 	static void removeLeftoverTempScene();
 	static void onFrontendEvent(enum obs_frontend_event event, void *param);
 
@@ -70,4 +75,5 @@ private:
 	QString savedScene;
 	QPointer<RegionBorder> border;
 	QPointer<RegionAdjustFrame> adjustFrame;
+	obs_weak_source_t *tempRegionSource = nullptr;
 };

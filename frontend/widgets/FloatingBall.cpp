@@ -94,6 +94,7 @@ public:
 signals:
 	void confirmed(const QRect &region);
 	void cancelled();
+	void regionChanged(const QRect &region);
 
 protected:
 	void paintEvent(QPaintEvent *) override
@@ -144,7 +145,7 @@ protected:
 	void mouseMoveEvent(QMouseEvent *event) override
 	{
 		if (activeHit == Hit::None) {
-			setCursor(cursorForHit(hitTest(event->pos())));
+			setCursor(cursorForHit(hitTest(event->pos()), event->pos()));
 			return;
 		}
 
@@ -161,6 +162,7 @@ protected:
 	{
 		activeHit = Hit::None;
 		unsetCursor();
+		emit regionChanged(region);
 	}
 
 	void keyPressEvent(QKeyEvent *event) override
@@ -247,8 +249,14 @@ private:
 		return Hit::None;
 	}
 
-	Qt::CursorShape cursorForHit(Hit hit) const
+	Qt::CursorShape cursorForHit(Hit hit, const QPoint &pos) const
 	{
+		const QRect b = borderRect();
+		/* on the toolbar strip (above or below the region rect) the cursor
+		 * should be a plain arrow, not a resize indicator */
+		if (toolbarAbove ? pos.y() < b.top() : pos.y() > b.bottom()) {
+			return Qt::ArrowCursor;
+		}
 		switch (hit) {
 		case Hit::Inside: return Qt::SizeAllCursor;
 		case Hit::Left:
@@ -500,6 +508,63 @@ void FloatingBall::removeLeftoverTempScene()
 		obs_source_remove(scene);
 }
 
+bool FloatingBall::createTempSceneAndSwitch(const char *monitorId, long rx, long ry, long rw, long rh,
+					    long ax, long ay, bool startRecording)
+{
+	uint64_t outW = (uint64_t)(rw & ~3L);
+	uint64_t outH = (uint64_t)(rh & ~1L);
+	if (outW < 32 || outH < 32)
+		return false;
+
+	/* save the current scene so it can be restored afterwards */
+	OBSSourceAutoRelease currentScene = obs_frontend_get_current_scene();
+	savedScene = QT_UTF8(obs_source_get_name(currentScene));
+
+	removeLeftoverTempScene();
+
+	/* create the temporary scene with a region capture source */
+	OBSDataAutoRelease settings = obs_data_create();
+	obs_data_set_string(settings, "monitor_id", monitorId);
+	obs_data_set_int(settings, "region_x", rx);
+	obs_data_set_int(settings, "region_y", ry);
+	obs_data_set_int(settings, "region_w", rw);
+	obs_data_set_int(settings, "region_h", rh);
+	obs_data_set_bool(settings, "capture_cursor", true);
+
+	OBSSourceAutoRelease source =
+		obs_source_create("region_capture", QT_TO_UTF8(QTStr("FloatingBall.SourceName")), settings, nullptr);
+	if (!source)
+		return false;
+
+	obs_scene_t *scene = obs_scene_create(QT_TO_UTF8(QTStr("FloatingBall.TempScene")));
+	if (!scene)
+		return false;
+
+	obs_scene_add(scene, source);
+	obs_source_t *sceneSource = obs_scene_get_source(scene);
+	obs_frontend_set_current_scene(sceneSource);
+	obs_scene_release(scene);
+
+	if (tempRegionSource)
+		obs_weak_source_release(tempRegionSource);
+	tempRegionSource = obs_source_get_weak_source(source);
+
+	if (startRecording) {
+		/* show the region boundary while recording */
+		border = new RegionBorder();
+		border->setGeometry((int)ax - 4, (int)ay - 4, (int)rw + 8, (int)rh + 8);
+		border->show();
+
+		obs_frontend_recording_start();
+
+		regionSession = true;
+		pendingStartMs = QDateTime::currentMSecsSinceEpoch();
+		recordStartMs = pendingStartMs;
+	}
+
+	return true;
+}
+
 void FloatingBall::startRegionRecord()
 {
 	if (regionSession || adjustFrame)
@@ -526,17 +591,66 @@ void FloatingBall::startRegionRecord()
 	if (!ok || rw < 1 || rh < 1)
 		return;
 
+	/* create the temporary scene immediately so the canvas resizes right away */
+	{
+		calldata_t cd2 = {0};
+		calldata_set_int(&cd2, "x", ax);
+		calldata_set_int(&cd2, "y", ay);
+		calldata_set_int(&cd2, "width", rw);
+		calldata_set_int(&cd2, "height", rh);
+		if (proc_handler_call(obs_get_proc_handler(), "win_capture_region_clamp_to_monitor", &cd2) &&
+		    calldata_bool(&cd2, "success")) {
+			createTempSceneAndSwitch(calldata_string(&cd2, "monitor_id"), calldata_int(&cd2, "x"),
+						 calldata_int(&cd2, "y"), calldata_int(&cd2, "width"),
+						 calldata_int(&cd2, "height"), ax, ay, false);
+		}
+		calldata_free(&cd2);
+	}
+
 	/* show an adjustable frame around the picked region; the recording only
 	 * starts when the user confirms */
 	adjustFrame = new RegionAdjustFrame(QRect((int)ax, (int)ay, (int)rw, (int)rh));
+	connect(adjustFrame, &RegionAdjustFrame::regionChanged, this, [this](const QRect &absRegion) {
+		calldata_t cd = {0};
+		calldata_set_int(&cd, "x", (long long)absRegion.x());
+		calldata_set_int(&cd, "y", (long long)absRegion.y());
+		calldata_set_int(&cd, "width", (long long)absRegion.width());
+		calldata_set_int(&cd, "height", (long long)absRegion.height());
+		bool called = proc_handler_call(obs_get_proc_handler(), "win_capture_region_clamp_to_monitor", &cd);
+
+		const char *monitorId = called && calldata_bool(&cd, "success")
+						? calldata_string(&cd, "monitor_id")
+						: nullptr;
+		long rx = calldata_int(&cd, "x");
+		long ry = calldata_int(&cd, "y");
+		long rw = calldata_int(&cd, "width");
+		long rh = calldata_int(&cd, "height");
+
+		if (!calldata_bool(&cd, "success") || !monitorId || rw < 1 || rh < 1) {
+			calldata_free(&cd);
+			return;
+		}
+
+		/* update the temp scene's source parameters and canvas resolution live */
+		finishRegionRecord();
+		createTempSceneAndSwitch(monitorId, rx, ry, rw, rh, absRegion.x(), absRegion.y(), false);
+		calldata_free(&cd);
+	});
 	connect(adjustFrame, &RegionAdjustFrame::confirmed, this, &FloatingBall::onRegionConfirmed);
 	connect(adjustFrame, &RegionAdjustFrame::cancelled, this, [this]() {
 		adjustFrame->deleteLater();
 		adjustFrame = nullptr;
+		finishRegionRecord();
 	});
 	adjustFrame->show();
 	adjustFrame->activateWindow();
 	adjustFrame->setFocus();
+}
+
+void FloatingBall::onRegionChanged(const QRect &region)
+{
+	/* handled in the lambda connected to RegionAdjustFrame::regionChanged */
+	Q_UNUSED(region);
 }
 
 void FloatingBall::onRegionConfirmed(const QRect &absRegion)
@@ -546,76 +660,14 @@ void FloatingBall::onRegionConfirmed(const QRect &absRegion)
 		adjustFrame = nullptr;
 	}
 
-	/* map the adjusted absolute rect to a monitor-relative region */
-	calldata_t cd = {0};
-	calldata_set_int(&cd, "x", (long long)absRegion.x());
-	calldata_set_int(&cd, "y", (long long)absRegion.y());
-	calldata_set_int(&cd, "width", (long long)absRegion.width());
-	calldata_set_int(&cd, "height", (long long)absRegion.height());
-	bool called = proc_handler_call(obs_get_proc_handler(), "win_capture_region_clamp_to_monitor", &cd);
-	bool ok = called && calldata_bool(&cd, "success");
+	/* the temporary scene and source are already live; just start recording */
 
-	const char *monitorId = ok ? calldata_string(&cd, "monitor_id") : nullptr;
-	long rx = calldata_int(&cd, "x");
-	long ry = calldata_int(&cd, "y");
-	long rw = calldata_int(&cd, "width");
-	long rh = calldata_int(&cd, "height");
-	long ax = calldata_int(&cd, "abs_x");
-	long ay = calldata_int(&cd, "abs_y");
-
-	std::string monitorIdCopy = monitorId ? monitorId : "";
-	calldata_free(&cd);
-
-	if (!ok || monitorIdCopy.empty() || rw < 1 || rh < 1)
-		return;
-
-	/* matches what obs_reset_video enforces: width multiple of 4, even
-	 * height, at least 32x32 */
-	uint64_t outW = (uint64_t)(rw & ~3L);
-	uint64_t outH = (uint64_t)(rh & ~1L);
-	if (outW < 32 || outH < 32) {
-		OBSMessageBox::warning(this, QTStr("FloatingBall.DrawRegion.Busy.Title"),
-				       QTStr("FloatingBall.DrawRegion.TooSmall.Text"));
-		return;
+	/* show the region boundary while recording */
+	if (!border) {
+		border = new RegionBorder();
+		border->setGeometry(absRegion.adjusted(-4, -4, 4, 4));
+		border->show();
 	}
-
-	/* save the current scene so it can be restored afterwards; the canvas
-	 * is handled by the frontend region canvas tracker (it applies the
-	 * region size when the temporary scene becomes current and restores
-	 * the normal canvas when switching back) */
-	OBSSourceAutoRelease currentScene = obs_frontend_get_current_scene();
-	savedScene = QT_UTF8(obs_source_get_name(currentScene));
-
-	removeLeftoverTempScene();
-
-	/* create the temporary scene with a region capture source */
-	OBSDataAutoRelease settings = obs_data_create();
-	obs_data_set_string(settings, "monitor_id", monitorIdCopy.c_str());
-	obs_data_set_int(settings, "region_x", rx);
-	obs_data_set_int(settings, "region_y", ry);
-	obs_data_set_int(settings, "region_w", rw);
-	obs_data_set_int(settings, "region_h", rh);
-	obs_data_set_bool(settings, "capture_cursor", true);
-
-	OBSSourceAutoRelease source =
-		obs_source_create("region_capture", QT_TO_UTF8(QTStr("FloatingBall.SourceName")), settings, nullptr);
-	if (!source)
-		return;
-
-	obs_scene_t *scene = obs_scene_create(QT_TO_UTF8(QTStr("FloatingBall.TempScene")));
-	if (!scene)
-		return;
-
-	obs_scene_add(scene, source);
-	obs_source_t *sceneSource = obs_scene_get_source(scene);
-	obs_frontend_set_current_scene(sceneSource);
-	obs_scene_release(scene);
-
-	/* show the region boundary while recording; the border is drawn a few
-	 * pixels OUTSIDE the captured area so it does not end up in the video */
-	border = new RegionBorder();
-	border->setGeometry((int)ax - 4, (int)ay - 4, (int)rw + 8, (int)rh + 8);
-	border->show();
 
 	obs_frontend_recording_start();
 
@@ -626,8 +678,22 @@ void FloatingBall::onRegionConfirmed(const QRect &absRegion)
 
 void FloatingBall::finishRegionRecord()
 {
-	if (!regionSession)
-		return;
+	if (tempRegionSource) {
+		obs_weak_source_release(tempRegionSource);
+		tempRegionSource = nullptr;
+	}
+
+	if (!regionSession) {
+		if (!savedScene.isEmpty()) {
+			OBSSourceAutoRelease prev = obs_get_source_by_name(savedScene.toUtf8().constData());
+			if (prev)
+				obs_frontend_set_current_scene(prev);
+		}
+		OBSSourceAutoRelease tempScene = obs_get_source_by_name(QT_TO_UTF8(QTStr("FloatingBall.TempScene")));
+		if (tempScene)
+			obs_source_remove(tempScene);
+		savedScene.clear();
+	}
 	regionSession = false;
 	pendingStartMs = 0;
 

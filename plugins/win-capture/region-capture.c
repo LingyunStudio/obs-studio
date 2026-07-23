@@ -628,13 +628,19 @@ static bool apply_region_as_output(struct region_capture *capture, long rw, long
 	rh &= ~1L;
 
 	if (rw < 32 || rh < 32) {
-		warn("Cannot apply output size: region is empty or too small (minimum 32x32). Select a region first.");
+		if (capture)
+			warn("Cannot apply output size: region is empty or too small (minimum 32x32). Select a region first.");
+		else
+			blog(LOG_WARNING, "[region-capture] Cannot apply output size: region is empty or too small (minimum 32x32).");
 		return false;
 	}
 
 	if (obs_frontend_recording_active() || obs_frontend_streaming_active() ||
 	    obs_frontend_virtualcam_active() || obs_frontend_replay_buffer_active()) {
-		warn("Cannot apply output size while recording, streaming, replay buffer, or virtual camera is active.");
+		if (capture)
+			warn("Cannot apply output size while recording, streaming, replay buffer, or virtual camera is active.");
+		else
+			blog(LOG_WARNING, "[region-capture] Cannot apply output size while recording, streaming, replay buffer, or virtual camera is active.");
 		return false;
 	}
 
@@ -667,7 +673,7 @@ static bool apply_region_as_output(struct region_capture *capture, long rw, long
 	obs_frontend_save();
 	obs_frontend_reset_video();
 
-	info("Applied region size %ldx%ld to canvas and output", rw, rh);
+	blog(LOG_INFO, "[region-capture] Applied region size %ldx%ld to canvas and output", rw, rh);
 	return true;
 }
 
@@ -854,6 +860,9 @@ static void region_picker_proc(void *data, calldata_t *cd)
 		calldata_set_int(cd, "height", rh);
 		calldata_set_int(cd, "abs_x", abs_x);
 		calldata_set_int(cd, "abs_y", abs_y);
+
+		/* auto-apply the region as canvas/output size */
+		apply_region_as_output(NULL, rw, rh);
 	}
 }
 
