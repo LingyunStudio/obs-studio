@@ -1625,6 +1625,11 @@ static bool FindRegionSourceCb(obs_scene_t *, obs_sceneitem_t *item, void *param
 	return true;
 }
 
+/* A region source only drives the canvas when it is the scene's sole visual
+ * source (e.g. the floating ball's temporary scene). If there is any other
+ * video-producing item (a full-screen capture, camera, image, nested scene),
+ * the canvas belongs to that main picture and the region is just an overlay. */
+
 struct RegionItemSearch {
 	obs_source_t *source;
 	obs_sceneitem_t *item;
@@ -1710,6 +1715,32 @@ void OBSBasic::UpdateRegionCanvas()
 	if (scene)
 		obs_scene_enum_items(scene, FindRegionSourceCb, &regionSource);
 
+	/* If the region source shares the scene with another video source it
+	 * is an overlay, not the main picture: do not resize the canvas. If we
+	 * were tracking the region canvas before, restore the normal one. */
+	if (regionSource && scene) {
+		struct OtherVideoSearch {
+			obs_source_t *region;
+			bool found;
+		} search = {regionSource, false};
+		obs_scene_enum_items(scene,
+				     [](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+					     OtherVideoSearch *s = (OtherVideoSearch *)param;
+					     if (!obs_sceneitem_visible(item))
+						     return true;
+					     obs_source_t *source = obs_sceneitem_get_source(item);
+					     if (source && source != s->region &&
+						 (obs_source_get_output_flags(source) & OBS_SOURCE_VIDEO) != 0) {
+						     s->found = true;
+						     return false;
+					     }
+					     return true;
+				     },
+				     &search);
+		if (search.found)
+			regionSource = nullptr;
+	}
+
 	config_t *user = App()->GetUserConfig();
 	bool applied = config_get_bool(user, "BasicWindow", "RegionTrackApplied");
 
@@ -1758,7 +1789,6 @@ void OBSBasic::ApplyRegionCanvas(obs_source_t *regionSource)
 		config_set_uint(profile, "Video", "OutputCX", outW);
 		config_set_uint(profile, "Video", "OutputCY", outH);
 		config_save_safe(profile, "tmp", nullptr);
-		obs_frontend_save();
 		obs_frontend_reset_video();
 	}
 
@@ -1806,7 +1836,6 @@ void OBSBasic::RestoreRegionCanvas()
 		config_set_uint(profile, "Video", "OutputCX", outCX);
 		config_set_uint(profile, "Video", "OutputCY", outCY);
 		config_save_safe(profile, "tmp", nullptr);
-		obs_frontend_save();
 		obs_frontend_reset_video();
 	}
 

@@ -667,10 +667,10 @@ static bool apply_region_as_output(struct region_capture *capture, long rw, long
 	config_set_uint(config, "Video", "OutputCX", (uint64_t)rw);
 	config_set_uint(config, "Video", "OutputCY", (uint64_t)rh);
 
-	/* persist the video settings (obs_frontend_save only saves the scene
-	 * collection, not the profile config) and apply immediately */
+	/* persist the profile video settings (the canvas change does not alter
+	 * scene item data, so saving the scene collection is unnecessary) and
+	 * apply immediately */
 	config_save_safe(config, "tmp", NULL);
-	obs_frontend_save();
 	obs_frontend_reset_video();
 
 	blog(LOG_INFO, "[region-capture] Applied region size %ldx%ld to canvas and output", rw, rh);
