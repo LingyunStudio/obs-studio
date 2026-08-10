@@ -662,13 +662,22 @@ static void center_source_native(obs_source_t *source)
 		obs_scene_enum_items(scene, find_sceneitem_cb, &search);
 
 		if (search.item) {
-			struct vec2 pos = {0.0f, 0.0f};
 			struct vec2 scale = {1.0f, 1.0f};
+			struct vec2 pos = {0.0f, 0.0f};
 
 			obs_sceneitem_set_bounds_type(search.item, OBS_BOUNDS_NONE);
 			obs_sceneitem_set_scale(search.item, &scale);
 			obs_sceneitem_set_rot(search.item, 0.0f);
 			obs_sceneitem_set_alignment(search.item, OBS_ALIGN_CENTER);
+
+			/* pass the canvas centre in absolute pixels;
+			 * obs_sceneitem_set_pos converts it to relative
+			 * coordinates when the scene uses that mode */
+			struct obs_video_info ovi;
+			if (obs_get_video_info(&ovi)) {
+				pos.x = (float)(ovi.base_width / 2);
+				pos.y = (float)(ovi.base_height / 2);
+			}
 			obs_sceneitem_set_pos(search.item, &pos);
 		}
 	}
