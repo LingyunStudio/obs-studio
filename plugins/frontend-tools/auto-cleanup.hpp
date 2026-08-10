@@ -16,22 +16,34 @@ private:
 	explicit AutoCleanup(QObject *parent = nullptr);
 	~AutoCleanup() override;
 
+	void OnRecordingStarted();
+	void OnRecordingPaused();
+	void OnRecordingUnpaused();
 	void OnRecordingStopped();
-	void TryHandleAfterRemux();
+	void ProcessRecording();
+	void StartPolling(bool deleteOriginOnComplete, bool deleteBothOnComplete);
 	void CheckForRemux();
-	void HandleFiles();
+	void HandleRemuxReady();
+	void HandleRemuxTimeout();
 	void DeleteWithRetry(const QString &path, int retriesLeft);
-	void DeleteFile(const QString &path);
+	QString ComputeRemuxOutput(bool *willRemux);
 
 	bool deleteShortClips = true;
 	bool deleteOriginAfterRemux = false;
 	int shortClipThreshold = 10;
 
 	QTimer *pollTimer = nullptr;
-	static int pollCount;
+	int pollCount = 0;
+	qint64 lastSeenSize = -1;
+
+	/* intent of the currently running poll */
+	bool pendingOriginDelete = false;
+	bool pendingShortDelete = false;
 
 	QString originPath;
 	QString remuxPath;
 	qint64 recordStartMs = 0;
+	qint64 pauseStartMs = 0;
+	qint64 pausedDurationMs = 0;
 	qint64 recordDurationMs = 0;
 };

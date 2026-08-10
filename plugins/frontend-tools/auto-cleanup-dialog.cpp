@@ -52,7 +52,7 @@ AutoCleanupDialog::AutoCleanupDialog(QWidget *parent) : QDialog(parent), ui(new 
 		QString("当前录制路径：%1").arg(QString::fromUtf8(recPath && *recPath ? recPath : "未设置")));
 
 	QObject::connect(ui->buttonBox->button(QDialogButtonBox::Close), &QPushButton::clicked, this,
-			 &AutoCleanupDialog::hide);
+			 &QDialog::close);
 	QObject::connect(ui->buttonBox, &QDialogButtonBox::accepted, this, &AutoCleanupDialog::SaveSettings);
 	QObject::connect(ui->buttonBox, &QDialogButtonBox::rejected, this, &AutoCleanupDialog::reject);
 }

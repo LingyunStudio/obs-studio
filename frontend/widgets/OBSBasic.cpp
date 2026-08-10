@@ -1601,6 +1601,11 @@ void OBSBasic::SetFloatingBallEnabled(bool enabled)
 	}
 }
 
+void OBSBasic::RefreshRegionCanvas()
+{
+	UpdateRegionCanvas();
+}
+
 /* ------------------------------------------------------------------------- */
 /* Region canvas tracking: canvas follows the current scene's region source  */
 

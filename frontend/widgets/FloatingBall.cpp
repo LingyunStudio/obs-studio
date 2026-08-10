@@ -66,8 +66,7 @@ class RegionAdjustFrame : public QWidget {
 
 public:
 	explicit RegionAdjustFrame(const QRect &region, QWidget *parent = nullptr) : QWidget(parent), region(region)
-	{
-		setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool);
+	{		setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool);
 		setAttribute(Qt::WA_TranslucentBackground);
 		setMouseTracking(true);
 		setFocusPolicy(Qt::StrongFocus);
@@ -88,6 +87,14 @@ public:
 		connect(startButton, &QPushButton::clicked, this, [this]() { emit confirmed(this->region); });
 		connect(cancelButton, &QPushButton::clicked, this, [this]() { emit cancelled(); });
 
+		updateWidgetGeometry();
+	}
+
+	/* Replace the current region (used after clamping to monitor bounds),
+	 * without triggering regionChanged. */
+	void setRegion(const QRect &newRegion)
+	{
+		region = newRegion;
 		updateWidgetGeometry();
 	}
 
@@ -565,6 +572,30 @@ bool FloatingBall::createTempSceneAndSwitch(const char *monitorId, long rx, long
 	return true;
 }
 
+bool FloatingBall::updateTempRegion(const char *monitorId, long rx, long ry, long rw, long rh)
+{
+	if (!tempRegionSource)
+		return false;
+
+	OBSSourceAutoRelease source = obs_weak_source_get_source(tempRegionSource);
+	if (!source)
+		return false;
+
+	OBSDataAutoRelease settings = obs_source_get_settings(source);
+	obs_data_set_string(settings, "monitor_id", monitorId);
+	obs_data_set_int(settings, "region_x", rx);
+	obs_data_set_int(settings, "region_y", ry);
+	obs_data_set_int(settings, "region_w", rw);
+	obs_data_set_int(settings, "region_h", rh);
+	obs_source_update(source, settings);
+
+	/* resize the canvas to the new region in place (no scene rebuild) */
+	OBSBasic *main = reinterpret_cast<OBSBasic *>(obs_frontend_get_main_window());
+	if (main)
+		main->RefreshRegionCanvas();
+	return true;
+}
+
 void FloatingBall::startRegionRecord()
 {
 	if (regionSession || adjustFrame)
@@ -591,50 +622,37 @@ void FloatingBall::startRegionRecord()
 	if (!ok || rw < 1 || rh < 1)
 		return;
 
-	/* create the temporary scene immediately so the canvas resizes right away */
-	{
-		calldata_t cd2 = {0};
-		calldata_set_int(&cd2, "x", ax);
-		calldata_set_int(&cd2, "y", ay);
-		calldata_set_int(&cd2, "width", rw);
-		calldata_set_int(&cd2, "height", rh);
-		if (proc_handler_call(obs_get_proc_handler(), "win_capture_region_clamp_to_monitor", &cd2) &&
-		    calldata_bool(&cd2, "success")) {
-			createTempSceneAndSwitch(calldata_string(&cd2, "monitor_id"), calldata_int(&cd2, "x"),
-						 calldata_int(&cd2, "y"), calldata_int(&cd2, "width"),
-						 calldata_int(&cd2, "height"), ax, ay, false);
-		}
-		calldata_free(&cd2);
-	}
+	/* clamp the picked rect to the monitor it is on and create the
+	 * temporary scene immediately so the canvas resizes right away */
+	QRect clampedAbs;
+	QByteArray monitorId;
+	long rx, ry, crw, crh;
+	if (!clampRegion(ax, ay, rw, rh, &monitorId, &rx, &ry, &crw, &crh, &clampedAbs))
+		return;
+
+	if (!createTempSceneAndSwitch(monitorId.constData(), rx, ry, crw, crh, clampedAbs.x(),
+				      clampedAbs.y(), false))
+		return;
 
 	/* show an adjustable frame around the picked region; the recording only
 	 * starts when the user confirms */
-	adjustFrame = new RegionAdjustFrame(QRect((int)ax, (int)ay, (int)rw, (int)rh));
+	adjustFrame = new RegionAdjustFrame(clampedAbs);
 	connect(adjustFrame, &RegionAdjustFrame::regionChanged, this, [this](const QRect &absRegion) {
-		calldata_t cd = {0};
-		calldata_set_int(&cd, "x", (long long)absRegion.x());
-		calldata_set_int(&cd, "y", (long long)absRegion.y());
-		calldata_set_int(&cd, "width", (long long)absRegion.width());
-		calldata_set_int(&cd, "height", (long long)absRegion.height());
-		bool called = proc_handler_call(obs_get_proc_handler(), "win_capture_region_clamp_to_monitor", &cd);
-
-		const char *monitorId = called && calldata_bool(&cd, "success")
-						? calldata_string(&cd, "monitor_id")
-						: nullptr;
-		long rx = calldata_int(&cd, "x");
-		long ry = calldata_int(&cd, "y");
-		long rw = calldata_int(&cd, "width");
-		long rh = calldata_int(&cd, "height");
-
-		if (!calldata_bool(&cd, "success") || !monitorId || rw < 1 || rh < 1) {
-			calldata_free(&cd);
+		QByteArray monId;
+		long rx, ry, rw, rh;
+		QRect clamped;
+		if (!clampRegion(absRegion.x(), absRegion.y(), absRegion.width(), absRegion.height(), &monId, &rx,
+				 &ry, &rw, &rh, &clamped))
 			return;
-		}
 
-		/* update the temp scene's source parameters and canvas resolution live */
-		finishRegionRecord();
-		createTempSceneAndSwitch(monitorId, rx, ry, rw, rh, absRegion.x(), absRegion.y(), false);
-		calldata_free(&cd);
+		/* update the existing temp source/canvas in place instead of
+		 * tearing the scene down (which flickers and re-initialises the
+		 * encoder on every mouse release) */
+		if (updateTempRegion(monId.constData(), rx, ry, rw, rh)) {
+			/* keep the frame aligned with the actual (clamped) region */
+			if (clamped != absRegion)
+				adjustFrame->setRegion(clamped);
+		}
 	});
 	connect(adjustFrame, &RegionAdjustFrame::confirmed, this, &FloatingBall::onRegionConfirmed);
 	connect(adjustFrame, &RegionAdjustFrame::cancelled, this, [this]() {
@@ -645,6 +663,42 @@ void FloatingBall::startRegionRecord()
 	adjustFrame->show();
 	adjustFrame->activateWindow();
 	adjustFrame->setFocus();
+}
+
+bool FloatingBall::clampRegion(long ax, long ay, long aw, long ah, QByteArray *monitorIdOut, long *rxOut, long *ryOut,
+			       long *rwOut, long *rhOut, QRect *absOut)
+{
+	calldata_t cd = {0};
+	calldata_set_int(&cd, "x", ax);
+	calldata_set_int(&cd, "y", ay);
+	calldata_set_int(&cd, "width", aw);
+	calldata_set_int(&cd, "height", ah);
+	bool called = proc_handler_call(obs_get_proc_handler(), "win_capture_region_clamp_to_monitor", &cd);
+
+	bool success = false;
+	if (called && calldata_bool(&cd, "success")) {
+		const char *mon = calldata_string(&cd, "monitor_id");
+		long rw = calldata_int(&cd, "width");
+		long rh = calldata_int(&cd, "height");
+		if (mon && rw >= 1 && rh >= 1) {
+			if (monitorIdOut)
+				*monitorIdOut = mon;
+			if (rxOut)
+				*rxOut = calldata_int(&cd, "x");
+			if (ryOut)
+				*ryOut = calldata_int(&cd, "y");
+			if (rwOut)
+				*rwOut = rw;
+			if (rhOut)
+				*rhOut = rh;
+			if (absOut)
+				*absOut = QRect((int)calldata_int(&cd, "abs_x"), (int)calldata_int(&cd, "abs_y"),
+						(int)rw, (int)rh);
+			success = true;
+		}
+	}
+	calldata_free(&cd);
+	return success;
 }
 
 void FloatingBall::onRegionChanged(const QRect &region)
@@ -660,12 +714,21 @@ void FloatingBall::onRegionConfirmed(const QRect &absRegion)
 		adjustFrame = nullptr;
 	}
 
-	/* the temporary scene and source are already live; just start recording */
+	/* clamp one last time — the source should already match, but this also
+	 * guarantees the red border sits at the actual captured coordinates */
+	QRect clamped;
+	QByteArray monId;
+	long rx, ry, rw, rh;
+	if (!clampRegion(absRegion.x(), absRegion.y(), absRegion.width(), absRegion.height(), &monId, &rx, &ry, &rw,
+			 &rh, &clamped)) {
+		finishRegionRecord();
+		return;
+	}
+	updateTempRegion(monId.constData(), rx, ry, rw, rh);
 
-	/* show the region boundary while recording */
 	if (!border) {
 		border = new RegionBorder();
-		border->setGeometry(absRegion.adjusted(-4, -4, 4, 4));
+		border->setGeometry(clamped.adjusted(-4, -4, 4, 4));
 		border->show();
 	}
 

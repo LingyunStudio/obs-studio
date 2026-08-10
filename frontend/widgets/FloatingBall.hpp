@@ -58,6 +58,9 @@ private:
 	void finishRegionRecord();
 	bool createTempSceneAndSwitch(const char *monitorId, long rx, long ry, long rw, long rh,
 				      long ax, long ay, bool startRecording);
+	bool updateTempRegion(const char *monitorId, long rx, long ry, long rw, long rh);
+	static bool clampRegion(long ax, long ay, long aw, long ah, QByteArray *monitorIdOut, long *rxOut,
+				long *ryOut, long *rwOut, long *rhOut, QRect *absOut);
 	static void removeLeftoverTempScene();
 	static void onFrontendEvent(enum obs_frontend_event event, void *param);
 

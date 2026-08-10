@@ -1494,6 +1494,10 @@ private:
 public:
 	void SetFloatingBallEnabled(bool enabled);
 
+	/* Re-evaluates the region canvas for the current scene; used by the
+	 * floating ball after the live region is adjusted. */
+	void RefreshRegionCanvas();
+
 	/* -------------------------------------
 	 * MARK: - OBSBasic_RegionCanvas
 	 * -------------------------------------
