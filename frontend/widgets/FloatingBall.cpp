@@ -720,10 +720,15 @@ void FloatingBall::onFrontendEvent(enum obs_frontend_event event, void *param)
 {
 	FloatingBall *self = static_cast<FloatingBall *>(param);
 
-	/* frontend events are emitted on the UI thread; handle synchronously
-	 * so the cleanup also runs when OBS stops the recording on shutdown */
-	if (event == OBS_FRONTEND_EVENT_RECORDING_STOPPED)
+	if (event == OBS_FRONTEND_EVENT_RECORDING_STARTED) {
+		self->recording = true;
+		self->recordStartMs = QDateTime::currentMSecsSinceEpoch();
+		self->update();
+	} else if (event == OBS_FRONTEND_EVENT_RECORDING_STOPPED) {
+		self->recording = false;
 		self->finishRegionRecord();
+		self->update();
+	}
 }
 
 #include "FloatingBall.moc"

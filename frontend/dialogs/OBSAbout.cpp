@@ -28,6 +28,7 @@ OBSAbout::OBSAbout(QWidget *parent) : QDialog(parent), ui(new Ui::OBSAbout)
 	}
 
 	QString ver = obs_get_version_string();
+        ver += "-custom";
 
 	ui->version->setText(ver + bitness);
 

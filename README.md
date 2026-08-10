@@ -1,8 +1,8 @@
-# OBS Studio 定制版 —— 区域录制增强
+# OBS Studio 定制版 —— 区域录制增强 + 录制后自动清理
 
 [English README](README.en.md)
 
-本项目基于 [OBS Studio](https://obsproject.com) master 分支定制，新增了**绘制区域录制**、**画布跟随场景**、**悬浮球快捷录制**三个主要功能，用于快速录制屏幕上任意区域。
+本项目基于 [OBS Studio](https://obsproject.com) master 分支定制，新增了**绘制区域录制**、**画布跟随场景**、**悬浮球快捷录制**、**录制后自动清理**四个主要功能。
 
 ---
 
@@ -92,6 +92,39 @@
 
 ---
 
+## 功能四：录制后自动清理
+
+**工具 → 录制后自动清理**，录制停止后自动删除不需要的文件。
+
+### 两个独立功能
+
+| 功能 | 说明 |
+| --- | --- |
+| 删除短视频 | 录制时长低于阈值（默认 10 秒）的录制文件自动删除 |
+| 自动删除原格式文件 | 开启自动封装（Auto Remux）后，封装完成后删除原始格式文件，仅保留 MP4 |
+
+### 短视频判断
+
+录制停止时通过 `OBS_FRONTEND_EVENT_RECORDING_STARTED` / `STOPPED` 事件精确计算录制时长，低于阈值则判定为短视频并删除。
+
+### 自动封装联动
+
+如果启用了 OBS 的自动封装（设置 → 高级 → 自动封装至 MP4），录制停止后会等待封装完成再删除原始文件。通过轮询目标 MP4 文件是否存在来判断封装是否完成，最长等待 10 分钟。
+
+### 删除策略
+
+- 短视频：原始文件带重试删除（最多 15 次，每次间隔 2 秒），已封装的 MP4 直接删除
+- 原格式文件：带重试删除（最多 30 次，每次间隔 2 秒），以应对封装或文件占用延迟
+
+### 实现文件
+
+| 文件 | 说明 |
+| --- | --- |
+| `plugins/frontend-tools/auto-cleanup.{hpp,cpp}` | 自动清理核心逻辑 |
+| `plugins/frontend-tools/auto-cleanup-dialog.{hpp,cpp}` | 设置对话框 UI |
+
+---
+
 ## 构建
 
 与原版 OBS 相同（CMake 预设）:
@@ -115,6 +148,8 @@ cmake --build build_x64 --config RelWithDebInfo
 | `frontend/widgets/FloatingBall.{hpp,cpp}` | 悬浮球、可调整区域框、区域录制流程 |
 | `frontend/widgets/OBSBasic.{hpp,cpp}` | 画布跟随场景管理器 |
 | `frontend/settings/OBSBasicSettings.cpp` + `frontend/forms/OBSBasicSettings.ui` | 悬浮窗开关设置项 |
+| `plugins/frontend-tools/auto-cleanup.{hpp,cpp}` | 录制后自动清理：删除短视频与原始格式文件 |
+| `plugins/frontend-tools/auto-cleanup-dialog.{hpp,cpp}` | 自动清理设置对话框 UI |
 | `plugins/win-capture/data/locale/*.ini`、`frontend/data/locale/*.ini` | 中英文词条 |
 
 ### 插件对外的 proc 接口

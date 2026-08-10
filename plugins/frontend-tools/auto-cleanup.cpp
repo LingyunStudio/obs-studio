@@ -9,7 +9,6 @@
 #include <QAction>
 #include <QDir>
 #include <QFileInfo>
-#include <QFileInfoList>
 #include <QMainWindow>
 
 #include "qt-wrappers.hpp"
@@ -49,7 +48,7 @@ void AutoCleanup::OnFrontendEvent(enum obs_frontend_event event, void *param)
 	AutoCleanup *self = static_cast<AutoCleanup *>(param);
 
 	if (event == OBS_FRONTEND_EVENT_RECORDING_STARTED) {
-		self->recordStartMs = 0;
+		self->recordStartMs = os_gettime_ns() / 1000000;
 		self->recordDurationMs = 0;
 
 	} else if (event == OBS_FRONTEND_EVENT_RECORDING_STOPPED) {
@@ -65,33 +64,17 @@ void AutoCleanup::OnRecordingStopped()
 		return;
 
 	/* OBS may still be finalising the file when the event fires;
-	 * wait half a second before probing the recording folder */
+	 * wait half a second before probing */
 	os_sleep_ms(500);
 
-	config_t *config = obs_frontend_get_profile_config();
-
-	/* determine recording path (same logic as OBSBasic::on_actionShow_Recordings_triggered) */
-	const char *mode = config_get_string(config, "Output", "Mode");
-	bool simple = !mode || strcmp(mode, "Simple") == 0;
-
-	const char *recPath;
-	if (simple) {
-		recPath = config_get_string(config, "SimpleOutput", "FilePath");
-	} else {
-		const char *recType = config_get_string(config, "AdvOut", "RecType");
-		recPath = config_get_string(config, "AdvOut",
-					    (recType && strcmp(recType, "Standard") == 0) ? "RecFilePath"
-										   : "FFFilePath");
+	/* Use the official API to get the exact last recording path */
+	char *lastRec = obs_frontend_get_last_recording();
+	if (!lastRec || !*lastRec) {
+		bfree(lastRec);
+		return;
 	}
-	if (!recPath || !*recPath)
-		return;
-
-	QDir dir(QString::fromUtf8(recPath));
-	QFileInfoList recentFiles = dir.entryInfoList(QDir::Files, QDir::Time);
-	if (recentFiles.isEmpty())
-		return;
-
-	originPath = recentFiles.first().absoluteFilePath();
+	originPath = QString::fromUtf8(lastRec);
+	bfree(lastRec);
 
 	/* try to handle files now — if a remux is pending, defer until the
 	 * remuxed MP4 appears */
@@ -101,6 +84,13 @@ void AutoCleanup::OnRecordingStopped()
 void AutoCleanup::TryHandleAfterRemux()
 {
 	config_t *config = obs_frontend_get_profile_config();
+
+	/* clean up any stale timer from a previous recording */
+	if (pollTimer) {
+		pollTimer->stop();
+		pollTimer->deleteLater();
+		pollTimer = nullptr;
+	}
 
 	const char *mode = config_get_string(config, "Output", "Mode");
 	bool simple = !mode || strcmp(mode, "Simple") == 0;
@@ -142,6 +132,9 @@ void AutoCleanup::CheckForRemux()
 		pollTimer->stop();
 		pollTimer->deleteLater();
 		pollTimer = nullptr;
+		blog(LOG_WARNING, "[auto-cleanup] Remux timeout: %s never appeared",
+		     remuxPath.toUtf8().constData());
+		HandleFiles();
 	}
 }
 

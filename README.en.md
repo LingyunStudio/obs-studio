@@ -1,8 +1,8 @@
-# OBS Studio Custom Build — Region Recording Enhancements
+# OBS Studio Custom Build — Region Recording Enhancements + Auto Cleanup
 
 [中文 README](README.md)
 
-A customized build of [OBS Studio](https://obsproject.com) (master branch) adding **Draw Region capture**, **scene-following canvas**, and a **floating quick-record widget** for recording any screen area fast.
+A customized build of [OBS Studio](https://obsproject.com) (master branch) adding **Draw Region capture**, **scene-following canvas**, a **floating quick-record widget**, and **auto cleanup after recording**.
 
 ---
 
@@ -92,6 +92,39 @@ Failure handling: if recording fails to start, the session is cleaned up; if OBS
 
 ---
 
+## Feature 4: Auto Cleanup After Recording
+
+**Tools → Auto Cleanup After Recording** deletes unwanted files automatically when recording stops.
+
+### Two independent options
+
+| Option | Description |
+| --- | --- |
+| Delete Short Clips | Automatically delete recordings shorter than the threshold (default 10 s) |
+| Delete Original After Remux | When Auto Remux is enabled, delete the original-format file after remux completes, keeping only the MP4 |
+
+### Short clip detection
+
+Recording duration is computed precisely from `OBS_FRONTEND_EVENT_RECORDING_STARTED` / `STOPPED` events. If it falls below the threshold, the clip is deleted.
+
+### Auto Remux integration
+
+When OBS's Auto Remux is on (Settings → Advanced → Automatically remux to MP4), the plugin waits for the remuxed MP4 to appear on disk before deleting the original file. It polls for the remuxed file every second, timing out after 10 minutes.
+
+### Deletion strategy
+
+- Short clips: original file retried up to 15 times (2 s apart); the remuxed MP4 is deleted immediately
+- Original-format files (post-remux): retried up to 30 times (2 s apart) to handle remux or file-lock delays
+
+### Implementation files
+
+| File | Description |
+| --- | --- |
+| `plugins/frontend-tools/auto-cleanup.{hpp,cpp}` | Core auto-cleanup logic |
+| `plugins/frontend-tools/auto-cleanup-dialog.{hpp,cpp}` | Settings dialog UI |
+
+---
+
 ## Building
 
 Same as stock OBS (CMake presets):
@@ -115,6 +148,8 @@ Output: `build_x64/rundir/RelWithDebInfo/bin/64bit/obs64.exe`.
 | `frontend/widgets/FloatingBall.{hpp,cpp}` | Floating widget, adjustable region frame, region recording flow |
 | `frontend/widgets/OBSBasic.{hpp,cpp}` | Scene-following canvas manager |
 | `frontend/settings/OBSBasicSettings.cpp` + `frontend/forms/OBSBasicSettings.ui` | Floating widget settings toggle |
+| `plugins/frontend-tools/auto-cleanup.{hpp,cpp}` | Auto cleanup: delete short clips & original-format files after remux |
+| `plugins/frontend-tools/auto-cleanup-dialog.{hpp,cpp}` | Auto cleanup settings dialog UI |
 | `plugins/win-capture/data/locale/*.ini`, `frontend/data/locale/*.ini` | EN/CN strings |
 
 ### Proc handlers exposed by the plugin
