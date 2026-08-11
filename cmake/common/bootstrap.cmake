@@ -42,7 +42,7 @@ endif()
 
 # Set default global project variables
 set(OBS_COMPANY_NAME "dahu")
-set(OBS_PRODUCT_NAME "OBS Studio (dahu 定制版)")
+set(OBS_PRODUCT_NAME "OBS Studio (Custom)")
 set(OBS_WEBSITE "https://github.com/dahu/obs-studio")
 set(OBS_COMMENTS "Free and open source software for video recording and live streaming - dahu custom build")
 set(OBS_LEGAL_COPYRIGHT "(C) Lain Bailey")

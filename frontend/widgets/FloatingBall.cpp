@@ -366,10 +366,11 @@ void FloatingBall::paintEvent(QPaintEvent *)
 	QPainter p(this);
 	p.setRenderHint(QPainter::Antialiasing);
 
-	QRectF r = rect().adjusted(1, 1, -1, -1);
-	p.setPen(QPen(QColor(255, 255, 255, 70), 1.5));
+	QRectF r = rect().adjusted(1.5, 1.5, -1.5, -1.5);
+	qreal radius = r.height() / 2.0;
+	p.setPen(QPen(QColor(255, 255, 255, 70), 1.0));
 	p.setBrush(recording ? QColor(200, 45, 45, 225) : QColor(35, 35, 35, 200));
-	p.drawRoundedRect(r, height() / 2, height() / 2);
+	p.drawRoundedRect(r, radius, radius);
 
 	QFont f = p.font();
 	f.setBold(true);
