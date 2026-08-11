@@ -107,17 +107,9 @@ void AutoCleanup::OnRecordingStopped()
 	else
 		recordDurationMs = 0;
 
-	blog(LOG_INFO, "[auto-cleanup] recording stopped: duration=%lld ms, recordStart=%lld, pausedDuration=%lld",
-	     recordDurationMs, recordStartMs, pausedDurationMs);
-
 	LoadConfig();
-	blog(LOG_INFO, "[auto-cleanup] deleteShortClips=%d, deleteOriginAfterRemux=%d, threshold=%d",
-	     deleteShortClips, deleteOriginAfterRemux, shortClipThreshold);
-
-	if (!deleteShortClips && !deleteOriginAfterRemux) {
-		blog(LOG_INFO, "[auto-cleanup] both features disabled, nothing to do");
+	if (!deleteShortClips && !deleteOriginAfterRemux)
 		return;
-	}
 
 	/* OBS may still be finalising the file when the event fires; probe
 	 * half a second later without blocking the UI thread */
@@ -186,16 +178,11 @@ void AutoCleanup::ProcessRecording()
 {
 	char *lastRec = obs_frontend_get_last_recording();
 	if (!lastRec || !*lastRec) {
-		blog(LOG_WARNING, "[auto-cleanup] no last recording path from the frontend");
 		bfree(lastRec);
 		return;
 	}
 	originPath = QString::fromUtf8(lastRec);
 	bfree(lastRec);
-	blog(LOG_INFO, "[auto-cleanup] file: %s, recordDuration=%lld ms, isShort=%d, deleteShort=%d",
-	     originPath.toUtf8().constData(), recordDurationMs,
-	     (int)(recordDurationMs > 0 && recordDurationMs < (qint64)shortClipThreshold * 1000),
-	     (int)deleteShortClips);
 
 	/* clean up any stale timer from a previous recording */
 	if (pollTimer) {
