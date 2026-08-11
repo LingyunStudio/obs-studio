@@ -71,6 +71,8 @@ private:
 	QTimer tickTimer;
 	bool recording = false;
 	qint64 recordStartMs = 0;
+	qint64 recordElapsedSecs = 0;
+	bool recordingPaused = false;
 
 	/* state of an active "draw region" recording session */
 	bool regionSession = false;

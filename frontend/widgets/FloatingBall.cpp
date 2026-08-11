@@ -380,7 +380,7 @@ void FloatingBall::paintEvent(QPaintEvent *)
 
 QString FloatingBall::elapsedText() const
 {
-	qint64 secs = (QDateTime::currentMSecsSinceEpoch() - recordStartMs) / 1000;
+	qint64 secs = recordElapsedSecs;
 	if (secs < 0)
 		secs = 0;
 
@@ -396,12 +396,19 @@ QString FloatingBall::elapsedText() const
 void FloatingBall::onTick()
 {
 	bool active = obs_frontend_recording_active();
+	recordingPaused = active && obs_frontend_recording_paused();
 
 	if (active && !recording) {
 		recording = true;
 		recordStartMs = QDateTime::currentMSecsSinceEpoch();
+		recordElapsedSecs = 0;
 	} else if (!active && recording) {
 		recording = false;
+		recordingPaused = false;
+	} else if (active && !recordingPaused) {
+		/* count elapsed time exactly like the main status bar so the
+		 * two displays stay in sync; paused time is excluded */
+		recordElapsedSecs++;
 	}
 
 	/* a region session whose recording failed to start (e.g. encoder
@@ -412,6 +419,30 @@ void FloatingBall::onTick()
 	}
 	if (active)
 		pendingStartMs = 0;
+
+	/* The ball is a parentless Qt::Tool window; Windows/Qt may hide it on
+	 * its own (explorer restart, minimisation to tray, modal dialogs), and
+	 * a monitor topology change can leave its saved position off-screen.
+	 * When it is supposed to be enabled, bring it back and keep it on a
+	 * visible screen. Skipped while the region-adjust frame is up so it
+	 * never steals the topmost slot. */
+	config_t *config = App()->GetUserConfig();
+	bool enabled = config_get_bool(config, "BasicWindow", "FloatingBallEnabled");
+	if (enabled && !adjustFrame) {
+		QScreen *screen = QGuiApplication::screenAt(frameGeometry().center());
+		if (!screen)
+			screen = QGuiApplication::primaryScreen();
+		if (screen) {
+			QRect avail = screen->availableGeometry();
+			QRect geom = frameGeometry();
+			int nx = qBound(avail.left(), geom.left(), avail.right() - geom.width() + 1);
+			int ny = qBound(avail.top(), geom.top(), avail.bottom() - geom.height() + 1);
+			if (nx != geom.left() || ny != geom.top())
+				move(nx, ny);
+		}
+		if (!isVisible())
+			show();
+	}
 
 	update();
 }
@@ -785,11 +816,20 @@ void FloatingBall::onFrontendEvent(enum obs_frontend_event event, void *param)
 
 	if (event == OBS_FRONTEND_EVENT_RECORDING_STARTED) {
 		self->recording = true;
+		self->recordingPaused = false;
+		self->recordElapsedSecs = 0;
 		self->recordStartMs = QDateTime::currentMSecsSinceEpoch();
 		self->update();
 	} else if (event == OBS_FRONTEND_EVENT_RECORDING_STOPPED) {
 		self->recording = false;
+		self->recordingPaused = false;
 		self->finishRegionRecord();
+		self->update();
+	} else if (event == OBS_FRONTEND_EVENT_RECORDING_PAUSED) {
+		self->recordingPaused = true;
+		self->update();
+	} else if (event == OBS_FRONTEND_EVENT_RECORDING_UNPAUSED) {
+		self->recordingPaused = false;
 		self->update();
 	}
 }
