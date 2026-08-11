@@ -30,6 +30,7 @@
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPushButton>
 #include <QScreen>
 
@@ -366,11 +367,27 @@ void FloatingBall::paintEvent(QPaintEvent *)
 	QPainter p(this);
 	p.setRenderHint(QPainter::Antialiasing);
 
-	QRectF r = rect().adjusted(1.5, 1.5, -1.5, -1.5);
+	QRectF r = rect().adjusted(2.0, 2.0, -2.0, -2.0);
 	qreal radius = r.height() / 2.0;
-	p.setPen(QPen(QColor(255, 255, 255, 70), 1.0));
+
+	/* Build the capsule shape explicitly (left cap + body + right cap)
+	 * instead of using drawRoundedRect: on a frameless translucent
+	 * layered window with radius == half-height, Qt's rounded-rect path
+	 * can mis-render the right cap on some systems. */
+	QPainterPath path;
+	path.moveTo(r.left() + radius, r.top());
+	path.lineTo(r.right() - radius, r.top());
+	path.arcTo(QRectF(r.right() - 2.0 * radius, r.top(), 2.0 * radius, r.height()), 90.0, -180.0);
+	path.lineTo(r.left() + radius, r.bottom());
+	path.arcTo(QRectF(r.left(), r.top(), 2.0 * radius, r.height()), 270.0, -180.0);
+	path.closeSubpath();
+
+	QPen pen(QColor(255, 255, 255, 70), 1.0);
+	pen.setJoinStyle(Qt::RoundJoin);
+	p.setPen(pen);
 	p.setBrush(recording ? QColor(200, 45, 45, 225) : QColor(35, 35, 35, 200));
-	p.drawRoundedRect(r, radius, radius);
+	p.setRenderHint(QPainter::Antialiasing, true);
+	p.drawPath(path);
 
 	QFont f = p.font();
 	f.setBold(true);
