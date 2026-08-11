@@ -15,10 +15,10 @@ A new source type (plugin: `win-capture`) that captures an **arbitrary rectangul
 1. In the **Sources** dock, click `+` and choose **Draw Region**.
 2. In the properties window click **Select Region...**, then drag a rectangle on the fullscreen overlay (right-click or Esc to cancel).
 3. The selection takes effect immediately:
-   - Canvas and output resolution change to the region size **without restarting OBS**;
-   - The source is fitted to fill the canvas;
+   - If the region source is the **only video source** in the scene, the canvas and output resolution change to the region size and the source fills the canvas **without restarting OBS**;
+   - If the scene already contains **other video sources** (a full display capture, webcam, image, nested scene, ...), the region is composited at its **native 1:1 pixel size and centred** as an overlay — the canvas stays at the main picture's size;
    - A **Desktop Audio** source (default output device) is added to the current scene if missing — handy when you're in a hurry.
-4. You can also type X / Y / Width / Height manually, then click **Apply as Output Size** (audio is added here too).
+4. You can also type X / Y / Width / Height manually, then click **Apply as Output Size** to force the output to the current region size regardless of other sources (audio is added here too).
 
 ### Properties
 
@@ -27,7 +27,7 @@ A new source type (plugin: `win-capture`) that captures an **arbitrary rectangul
 | Display | Monitor the region is captured from |
 | X / Y / Width / Height | Region coordinates relative to the selected display |
 | Select Region... | Fullscreen drag selection |
-| Apply as Output Size | Set output resolution to the current region size |
+| Apply as Output Size | Force output resolution to the current region size |
 | Capture Cursor | Draw the mouse cursor in the video |
 | Force SDR | Capture HDR displays as SDR |
 
@@ -39,15 +39,16 @@ Output size is aligned automatically for encoders: width rounded down to a multi
 
 The canvas (output) resolution **follows the current scene** automatically:
 
-- Switch to a scene containing a Draw Region source → the canvas becomes that region's size;
-- Switch to a scene without one → the previous ("normal") resolution is restored.
+- Switch to a scene whose only video source is a Draw Region source → the canvas becomes that region's size;
+- If the region source shares the scene with other video sources, the region is an overlay and the canvas is **not** resized (the main picture defines the canvas);
+- Switch to a scene without a region source → the previous ("normal") resolution is restored.
 
 Details:
 
 - Tracking state is persisted in the user config and restored correctly across restarts;
 - The resolution never changes while recording / streaming / replay buffer / virtual camera is active — it is re-evaluated when recording stops;
 - Switching profiles resets the tracking state, so another profile's resolution is never "restored" into the current one;
-- The region scene item is always fitted 1:1 (the relative-coordinate scaling pitfall is handled by applying transforms after the video reset).
+- The region scene item is always fitted 1:1 under the region canvas (the relative/absolute coordinate scaling pitfall is handled by applying transforms after the video reset).
 
 ---
 
@@ -59,11 +60,13 @@ A small always-on-top floating widget for quick recording control anywhere.
 
 **Settings → General → Floating Widget → Enable**. Takes effect immediately; you can also hide it from its right-click menu.
 
+The widget is a parentless tool window. If Windows/Qt hides it on its own (Explorer/shell restart, minimise to tray, modal dialogs) or a monitor topology change leaves its saved position off-screen, a once-per-second health check re-shows it while enabled and clamps it back into the visible area of the screen it currently sits on.
+
 ### The widget
 
 - **Drag**: move it (position is remembered);
 - **Click**: start / stop recording;
-- Shows `REC` when idle; turns red and **shows the elapsed recording time** while recording.
+- Shows `REC` when idle; turns red and **shows the elapsed recording time** while recording (matches the main status bar, and freezes while recording is paused).
 
 ### Right-click menu
 
@@ -101,20 +104,28 @@ Failure handling: if recording fails to start, the session is cleaned up; if OBS
 | Option | Description |
 | --- | --- |
 | Delete Short Clips | Automatically delete recordings shorter than the threshold (default 10 s) |
-| Delete Original After Remux | When Auto Remux is enabled, delete the original-format file after remux completes, keeping only the MP4 |
+| Delete Original After Remux | When Auto Remux is enabled, delete the original-format file after remux completes, keeping only the remuxed output |
 
 ### Short clip detection
 
-Recording duration is computed precisely from `OBS_FRONTEND_EVENT_RECORDING_STARTED` / `STOPPED` events. If it falls below the threshold, the clip is deleted.
+Recording duration is measured from the frontend start/stop events (time spent paused is excluded). If it falls below the threshold, the clip is deleted.
 
 ### Auto Remux integration
 
-When OBS's Auto Remux is on (Settings → Advanced → Automatically remux to MP4), the plugin waits for the remuxed MP4 to appear on disk before deleting the original file. It polls for the remuxed file every second, timing out after 10 minutes.
+The plugin replicates OBS's own Auto Remux decision and only waits for / deletes a file when a remuxed output will actually be produced:
+
+- Advanced FFmpeg custom output and lossless AVI → OBS does not remux, the original is kept;
+- fragmented MP4/MOV → output is `<name>.remuxed.<ext>`;
+- ProRes encoder → output is `.mov`;
+- Otherwise → output is a same-named `.mp4`.
+
+It polls the target file until its size stays unchanged across two polls (i.e. the remux has finished writing) before deleting the original, with a 10-minute timeout. On timeout the **original recording is kept** and a warning is logged instead of deleting the only copy. If the recording format is already MP4 (remux path equals the original), deletion is skipped.
 
 ### Deletion strategy
 
-- Short clips: original file retried up to 15 times (2 s apart); the remuxed MP4 is deleted immediately
-- Original-format files (post-remux): retried up to 30 times (2 s apart) to handle remux or file-lock delays
+- Short clips: both the original and the remuxed output are deleted with retries (up to 15 times, 2 s apart);
+- Original-format files (post-remux): deleted with retries (up to 30 times, 2 s apart) to handle file-lock delays;
+- All deletion work runs on background timers, so stopping a recording never blocks the UI.
 
 ### Implementation files
 
