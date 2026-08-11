@@ -195,15 +195,19 @@ void AutoCleanup::ProcessRecording()
 		       recordDurationMs < (qint64)shortClipThreshold * 1000;
 
 	if (isShort && deleteShortClips) {
-		/* short clip: the original goes immediately (retries cope with
-		 * the remuxer still holding it open); if a remux produces
-		 * another file, delete that one once it finishes writing */
-		DeleteWithRetry(originPath, 15);
-
 		bool willRemux = false;
 		remuxPath = ComputeRemuxOutput(&willRemux);
-		if (willRemux && remuxPath != originPath)
+
+		if (willRemux && remuxPath != originPath) {
+			/* A remuxed mp4 will be produced. Do NOT delete the
+			 * original yet — OBS's remuxer is still reading it.
+			 * Wait for the mp4 to finish writing, then delete both
+			 * files (both are unwanted because the clip was short). */
 			StartPolling(false, true);
+		} else {
+			/* No remuxed file expected: just delete the original. */
+			DeleteWithRetry(originPath, 15);
+		}
 		return;
 	}
 
@@ -277,7 +281,10 @@ void AutoCleanup::CheckForRemux()
 void AutoCleanup::HandleRemuxReady()
 {
 	if (pendingShortDelete) {
+		/* Short clip: delete both the remuxed output and the
+		 * original (the remuxer is done reading it by now). */
 		DeleteWithRetry(remuxPath, 15);
+		DeleteWithRetry(originPath, 15);
 	} else if (pendingOriginDelete) {
 		DeleteWithRetry(originPath, 30);
 	}
