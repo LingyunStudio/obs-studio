@@ -103,10 +103,19 @@ void OBSBasic::CreateFirstRunSources()
 
 	if (hasDesktopAudio) {
 		ResetAudioDevice(App()->OutputAudioSource(), "default", Str("Basic.DesktopDevice1"), 1);
+	} else {
+		ResetAudioDevice(App()->OutputAudioSource(), "disabled", Str("Basic.DesktopDevice1"), 1);
 	}
+	ResetAudioDevice(App()->OutputAudioSource(), "disabled", Str("Basic.DesktopDevice2"), 2);
+
 	if (hasInputAudio) {
 		ResetAudioDevice(App()->InputAudioSource(), "default", Str("Basic.AuxDevice1"), 3);
+	} else {
+		ResetAudioDevice(App()->InputAudioSource(), "disabled", Str("Basic.AuxDevice1"), 3);
 	}
+	ResetAudioDevice(App()->InputAudioSource(), "disabled", Str("Basic.AuxDevice2"), 4);
+	ResetAudioDevice(App()->InputAudioSource(), "disabled", Str("Basic.AuxDevice3"), 5);
+	ResetAudioDevice(App()->InputAudioSource(), "disabled", Str("Basic.AuxDevice4"), 6);
 }
 
 OBSSceneItem OBSBasic::GetSceneItem(QListWidgetItem *item)

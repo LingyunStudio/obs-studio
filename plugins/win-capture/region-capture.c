@@ -619,6 +619,72 @@ static void fit_source_to_canvas(obs_source_t *source)
 	obs_source_release(scene_source);
 }
 
+struct other_video_search {
+	obs_source_t *exclude;
+	bool found;
+};
+
+static bool find_other_video_cb(obs_scene_t *scene, obs_sceneitem_t *item, void *param)
+{
+	UNUSED_PARAMETER(scene);
+
+	struct other_video_search *search = param;
+	if (!obs_sceneitem_visible(item))
+		return true;
+
+	obs_source_t *source = obs_sceneitem_get_source(item);
+	if (source && source != search->exclude &&
+	    (obs_source_get_output_flags(source) & OBS_SOURCE_VIDEO) != 0) {
+		search->found = true;
+		return false;
+	}
+	return true;
+}
+
+static bool scene_has_other_video(obs_scene_t *scene, obs_source_t *exclude)
+{
+	struct other_video_search search = {exclude, false};
+	obs_scene_enum_items(scene, find_other_video_cb, &search);
+	return search.found;
+}
+
+/* Place the region item at its native pixel size (1:1, same scale reference
+ * as every other source in the scene) and centre it on the canvas. */
+static void center_source_native(obs_source_t *source)
+{
+	obs_source_t *scene_source = obs_frontend_get_current_scene();
+	if (!scene_source)
+		return;
+
+	obs_scene_t *scene = obs_scene_from_source(scene_source);
+	if (scene) {
+		struct fit_item_search search = {source, NULL};
+		obs_scene_enum_items(scene, find_sceneitem_cb, &search);
+
+		if (search.item) {
+			struct vec2 scale = {1.0f, 1.0f};
+			struct vec2 pos = {0.0f, 0.0f};
+
+			obs_sceneitem_set_bounds_type(search.item, OBS_BOUNDS_NONE);
+			obs_sceneitem_set_scale(search.item, &scale);
+			obs_sceneitem_set_rot(search.item, 0.0f);
+			obs_sceneitem_set_alignment(search.item, OBS_ALIGN_CENTER);
+
+			/* pass the canvas centre in absolute pixels;
+			 * obs_sceneitem_set_pos converts it to relative
+			 * coordinates when the scene uses that mode */
+			struct obs_video_info ovi;
+			if (obs_get_video_info(&ovi)) {
+				pos.x = (float)(ovi.base_width / 2);
+				pos.y = (float)(ovi.base_height / 2);
+			}
+			obs_sceneitem_set_pos(search.item, &pos);
+		}
+	}
+
+	obs_source_release(scene_source);
+}
+
 static bool apply_region_as_output(struct region_capture *capture, long rw, long rh)
 {
 	/* obs aligns the output width to a multiple of 4 and the output height
@@ -628,13 +694,19 @@ static bool apply_region_as_output(struct region_capture *capture, long rw, long
 	rh &= ~1L;
 
 	if (rw < 32 || rh < 32) {
-		warn("Cannot apply output size: region is empty or too small (minimum 32x32). Select a region first.");
+		if (capture)
+			warn("Cannot apply output size: region is empty or too small (minimum 32x32). Select a region first.");
+		else
+			blog(LOG_WARNING, "[region-capture] Cannot apply output size: region is empty or too small (minimum 32x32).");
 		return false;
 	}
 
 	if (obs_frontend_recording_active() || obs_frontend_streaming_active() ||
 	    obs_frontend_virtualcam_active() || obs_frontend_replay_buffer_active()) {
-		warn("Cannot apply output size while recording, streaming, replay buffer, or virtual camera is active.");
+		if (capture)
+			warn("Cannot apply output size while recording, streaming, replay buffer, or virtual camera is active.");
+		else
+			blog(LOG_WARNING, "[region-capture] Cannot apply output size while recording, streaming, replay buffer, or virtual camera is active.");
 		return false;
 	}
 
@@ -661,13 +733,13 @@ static bool apply_region_as_output(struct region_capture *capture, long rw, long
 	config_set_uint(config, "Video", "OutputCX", (uint64_t)rw);
 	config_set_uint(config, "Video", "OutputCY", (uint64_t)rh);
 
-	/* persist the video settings (obs_frontend_save only saves the scene
-	 * collection, not the profile config) and apply immediately */
+	/* persist the profile video settings (the canvas change does not alter
+	 * scene item data, so saving the scene collection is unnecessary) and
+	 * apply immediately */
 	config_save_safe(config, "tmp", NULL);
-	obs_frontend_save();
 	obs_frontend_reset_video();
 
-	info("Applied region size %ldx%ld to canvas and output", rw, rh);
+	blog(LOG_INFO, "[region-capture] Applied region size %ldx%ld to canvas and output", rw, rh);
 	return true;
 }
 
@@ -829,8 +901,25 @@ static bool select_region_clicked(obs_properties_t *props, obs_property_t *p, vo
 	obs_source_update(capture->source, settings);
 	obs_data_release(settings);
 
-	/* make the recorded output exactly the selected region */
-	apply_region_and_fit(capture, rw, rh);
+	/* If the scene contains another video source, the region is an
+	 * overlay: keep the canvas at its current size, show the region at
+	 * its native pixel size (1:1, the same scale reference as the other
+	 * sources) and centre it. If the region source is alone in the scene,
+	 * resize the canvas/output to the region as before. */
+	bool alone = true;
+	obs_source_t *scene_source = obs_frontend_get_current_scene();
+	obs_scene_t *scene = scene_source ? obs_scene_from_source(scene_source) : NULL;
+	if (scene)
+		alone = !scene_has_other_video(scene, capture->source);
+	if (scene_source)
+		obs_source_release(scene_source);
+
+	if (alone) {
+		apply_region_and_fit(capture, rw, rh);
+	} else {
+		center_source_native(capture->source);
+		ensure_default_audio_in_current_scene();
+	}
 
 	return true;
 }
@@ -854,6 +943,9 @@ static void region_picker_proc(void *data, calldata_t *cd)
 		calldata_set_int(cd, "height", rh);
 		calldata_set_int(cd, "abs_x", abs_x);
 		calldata_set_int(cd, "abs_y", abs_y);
+
+		/* auto-apply the region as canvas/output size */
+		apply_region_as_output(NULL, rw, rh);
 	}
 }
 

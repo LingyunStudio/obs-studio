@@ -53,6 +53,11 @@ add_obs_plugin(
     PLATFORMS WINDOWS MACOS LINUX
     WITH_MESSAGE
 )
+add_obs_plugin(
+    frontend-tools
+    PLATFORMS WINDOWS MACOS LINUX
+    WITH_MESSAGE
+)
 add_obs_plugin(image-source)
 add_obs_plugin(linux-alsa PLATFORMS LINUX FREEBSD OPENBSD)
 add_obs_plugin(linux-capture PLATFORMS LINUX FREEBSD OPENBSD)
@@ -97,4 +102,5 @@ add_obs_plugin(sndio PLATFORMS LINUX FREEBSD OPENBSD)
 add_obs_plugin(text-freetype2)
 add_obs_plugin(vlc-video WITH_MESSAGE)
 add_obs_plugin(win-capture PLATFORMS WINDOWS)
+add_obs_plugin(win-dshow PLATFORMS WINDOWS)
 add_obs_plugin(win-wasapi PLATFORMS WINDOWS)

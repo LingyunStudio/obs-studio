@@ -371,6 +371,7 @@ OBSBasicSettings::OBSBasicSettings(QWidget *parent)
 	HookWidget(ui->systemTrayEnabled,    CHECK_CHANGED,  GENERAL_CHANGED);
 	HookWidget(ui->systemTrayWhenStarted,CHECK_CHANGED,  GENERAL_CHANGED);
 	HookWidget(ui->systemTrayAlways,     CHECK_CHANGED,  GENERAL_CHANGED);
+	HookWidget(ui->floatingBallEnabled,  CHECK_CHANGED,  GENERAL_CHANGED);
 	HookWidget(ui->saveProjectors,       CHECK_CHANGED,  GENERAL_CHANGED);
 	HookWidget(ui->closeProjectors,      CHECK_CHANGED,  GENERAL_CHANGED);
 	HookWidget(ui->snappingEnabled,      CHECK_CHANGED,  GENERAL_CHANGED);
@@ -1331,6 +1332,9 @@ void OBSBasicSettings::LoadGeneralSettings()
 
 	bool systemTrayAlways = config_get_bool(App()->GetUserConfig(), "BasicWindow", "SysTrayMinimizeToTray");
 	ui->systemTrayAlways->setChecked(systemTrayAlways);
+
+	bool floatingBallEnabled = config_get_bool(App()->GetUserConfig(), "BasicWindow", "FloatingBallEnabled");
+	ui->floatingBallEnabled->setChecked(floatingBallEnabled);
 
 	bool saveProjectors = config_get_bool(App()->GetUserConfig(), "BasicWindow", "SaveProjectors");
 	ui->saveProjectors->setChecked(saveProjectors);
@@ -3179,6 +3183,13 @@ void OBSBasicSettings::SaveGeneralSettings()
 	if (WidgetChanged(ui->systemTrayAlways)) {
 		config_set_bool(App()->GetUserConfig(), "BasicWindow", "SysTrayMinimizeToTray",
 				ui->systemTrayAlways->isChecked());
+	}
+
+	if (WidgetChanged(ui->floatingBallEnabled)) {
+		config_set_bool(App()->GetUserConfig(), "BasicWindow", "FloatingBallEnabled",
+				ui->floatingBallEnabled->isChecked());
+
+		main->SetFloatingBallEnabled(ui->floatingBallEnabled->isChecked());
 	}
 
 	if (WidgetChanged(ui->saveProjectors)) {

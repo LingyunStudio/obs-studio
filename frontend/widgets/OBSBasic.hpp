@@ -47,6 +47,7 @@
 extern volatile bool recording_paused;
 
 class ColorSelect;
+class FloatingBall;
 class OBSAbout;
 class OBSBasicAdvAudio;
 class OBSBasicFilters;
@@ -1482,6 +1483,36 @@ public:
 
 	void SystemTrayInit();
 	void SystemTray(bool firstStarted);
+
+	/* -------------------------------------
+	 * MARK: - OBSBasic_FloatingBall
+	 * -------------------------------------
+	 */
+private:
+	QPointer<FloatingBall> floatingBall;
+
+public:
+	void SetFloatingBallEnabled(bool enabled);
+
+	/* Re-evaluates the region canvas for the current scene; used by the
+	 * floating ball after the live region is adjusted. */
+	void RefreshRegionCanvas();
+
+	/* -------------------------------------
+	 * MARK: - OBSBasic_RegionCanvas
+	 * -------------------------------------
+	 */
+private:
+	/* Canvas follows the current scene's "Draw Region" (region_capture)
+	 * source: when the current scene contains one, the canvas is set to the
+	 * region size; when switching to a scene without one, the previous
+	 * ("normal") canvas is restored. The tracking state is persisted in the
+	 * user config ("BasicWindow"/"RegionTrack*") so it is shared with the
+	 * win-capture plugin and survives restarts. */
+	static void OnRegionCanvasEvent(enum obs_frontend_event event, void *param);
+	void UpdateRegionCanvas();
+	void ApplyRegionCanvas(obs_source_t *regionSource);
+	void RestoreRegionCanvas();
 
 	/* -------------------------------------
 	 * MARK: - OBSBasic_Transitions

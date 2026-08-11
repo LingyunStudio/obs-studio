@@ -18,15 +18,11 @@
 /* ------------------------------------------------------------------------ */
 
 #ifndef WIN_MANIFEST_URL
-#define WIN_MANIFEST_URL "https://obsproject.com/update_studio/manifest.json"
-#endif
-
-#ifndef WIN_MANIFEST_BASE_URL
-#define WIN_MANIFEST_BASE_URL "https://obsproject.com/update_studio/"
+#define WIN_MANIFEST_URL "https://api.github.com/repos/dahu/obs-studio/releases/latest"
 #endif
 
 #ifndef WIN_BRANCHES_URL
-#define WIN_BRANCHES_URL "https://obsproject.com/update_studio/branches.json"
+#define WIN_BRANCHES_URL "https://api.github.com/repos/dahu/obs-studio/releases"
 #endif
 
 #ifndef WIN_DEFAULT_BRANCH
@@ -34,7 +30,7 @@
 #endif
 
 #ifndef WIN_UPDATER_URL
-#define WIN_UPDATER_URL "https://obsproject.com/update_studio/updater.exe"
+#define WIN_UPDATER_URL "https://github.com/dahu/obs-studio/releases/latest/download/updater.exe"
 #endif
 
 /* ------------------------------------------------------------------------ */
@@ -47,47 +43,63 @@ extern char *GetConfigPathPtr(const char *name);
 static bool ParseUpdateManifest(const char *manifest_data, bool *updatesAvailable, string &notes, string &updateVer,
 				const string &branch)
 try {
-	constexpr uint64_t currentVersion = (uint64_t)LIBOBS_API_VER << 16ULL | OBS_RELEASE_CANDIDATE << 8ULL |
-					    OBS_BETA;
-	constexpr bool isPreRelease = currentVersion & 0xffff || std::char_traits<char>::length(OBS_COMMIT);
-
+	// Parse GitHub Releases API JSON response (latest release)
 	json manifestContents = json::parse(manifest_data);
-	Manifest manifest = manifestContents.get<Manifest>();
 
-	if (manifest.version_major == 0 && manifest.commit.empty()) {
-		throw strprintf("Invalid version number: %d.%d.%d", manifest.version_major, manifest.version_minor,
-				manifest.version_patch);
+	// GitHub release tag_name is like "v36.0.1.1-custom" or "36.0.1.1-custom"
+	string tagName = manifestContents.value("tag_name", "");
+	string body = manifestContents.value("body", "");
+
+	// Remove leading 'v'/'V' if present
+	if (!tagName.empty() && (tagName[0] == 'v' || tagName[0] == 'V'))
+		tagName = tagName.substr(1);
+
+	if (tagName.empty()) {
+		*updatesAvailable = false;
+		return true;
 	}
 
-	notes = manifest.notes;
+	notes = body;
+	updateVer = tagName;
 
-	if (manifest.commit.empty()) {
-		uint64_t new_ver = MAKE_SEMANTIC_VERSION((uint64_t)manifest.version_major,
-							 (uint64_t)manifest.version_minor,
-							 (uint64_t)manifest.version_patch);
-		new_ver <<= 16;
-		/* RC builds are shifted so that rc1 and beta1 versions do not result
-		 * in the same new_ver. */
-		if (manifest.rc > 0) {
-			new_ver |= (uint64_t)manifest.rc << 8;
-		} else if (manifest.beta > 0) {
-			new_ver |= (uint64_t)manifest.beta;
+	// Version comparison: parse numeric parts from both remote and local version
+	auto parseVersion = [](const string &s, vector<int> &parts) {
+		parts.clear();
+		int v = -1;
+		for (char c : s) {
+			if (c >= '0' && c <= '9') {
+				if (v < 0)
+					v = 0;
+				v = v * 10 + (c - '0');
+			} else {
+				if (v >= 0) {
+					parts.push_back(v);
+					v = -1;
+				}
+			}
 		}
+		if (v >= 0)
+			parts.push_back(v);
+	};
 
-		updateVer = to_string(new_ver);
+	UNUSED_PARAMETER(branch);
 
-		/* When using a pre-release build or non-default branch we only check if
-		 * the manifest version is different, so that it can be rolled back. */
-		if (branch != WIN_DEFAULT_BRANCH || isPreRelease) {
-			*updatesAvailable = new_ver != currentVersion;
-		} else {
-			*updatesAvailable = new_ver > currentVersion;
+	vector<int> remoteParts, localParts;
+	parseVersion(tagName, remoteParts);
+	parseVersion(obs_get_version_string(), localParts);
+
+	size_t n = max(remoteParts.size(), localParts.size());
+	remoteParts.resize(n, 0);
+	localParts.resize(n, 0);
+
+	*updatesAvailable = false;
+	for (size_t i = 0; i < n; i++) {
+		if (remoteParts[i] > localParts[i]) {
+			*updatesAvailable = true;
+			break;
+		} else if (remoteParts[i] < localParts[i]) {
+			break;
 		}
-	} else {
-		/* Test or nightly builds may not have a (valid) version number,
-		 * so compare commit hashes instead. */
-		updateVer = manifest.commit.substr(0, 8);
-		*updatesAvailable = !currentVersion || manifest.commit.compare(0, strlen(OBS_COMMIT), OBS_COMMIT) != 0;
 	}
 
 	return true;
@@ -106,27 +118,10 @@ bool GetBranchAndUrl(string &selectedBranch, string &manifestUrl)
 		return true;
 	}
 
-	bool found = false;
-	for (const UpdateBranch &branch : App()->GetBranches()) {
-		if (branch.name != config_branch) {
-			continue;
-		}
-		/* A branch that is found but disabled will just silently fall back to
-		 * the default. But if the branch was removed entirely, the user should
-		 * be warned, so leave this false *only* if the branch was removed. */
-		found = true;
-
-		if (branch.is_enabled) {
-			selectedBranch = branch.name.toStdString();
-			if (branch.name != WIN_DEFAULT_BRANCH) {
-				manifestUrl = WIN_MANIFEST_BASE_URL;
-				manifestUrl += "manifest_" + branch.name.toStdString() + ".json";
-			}
-		}
-		break;
-	}
-
-	return found;
+	// For GitHub-based updates, branch selection is limited
+	// The "stable" branch corresponds to the latest GitHub release
+	selectedBranch = WIN_DEFAULT_BRANCH;
+	return true;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -210,6 +205,8 @@ try {
 	 * get manifest from server            */
 
 	text.clear();
+	// GitHub API requires a User-Agent header
+	extraHeaders.push_back("User-Agent: obs-studio-custom");
 	if (!FetchAndVerifyFile("manifest", "obs-studio\\updates\\manifest.json", manifestUrl.c_str(), &text,
 				extraHeaders)) {
 		return;
@@ -244,13 +241,6 @@ try {
 	}
 
 	/* ----------------------------------- *
-	 * fetch updater module                */
-
-	if (!FetchAndVerifyFile("updater", "obs-studio\\updates\\updater.exe", WIN_UPDATER_URL, nullptr)) {
-		return;
-	}
-
-	/* ----------------------------------- *
 	 * query user for update               */
 
 	if (repairMode) {
@@ -274,77 +264,12 @@ try {
 	}
 
 	/* ----------------------------------- *
-	 * get working dir                     */
+	 * inform user to download manually    */
 
-	wchar_t cwd[MAX_PATH];
-	GetModuleFileNameW(nullptr, cwd, _countof(cwd) - 1);
-	wchar_t *p = wcsrchr(cwd, '\\');
-	if (p) {
-		*p = 0;
-	}
-
-	/* ----------------------------------- *
-	 * execute updater                     */
-
-	BPtr<char> updateFilePath = GetAppConfigPathPtr("obs-studio\\updates\\updater.exe");
-	BPtr<wchar_t> wUpdateFilePath;
-
-	size_t size = os_utf8_to_wcs_ptr(updateFilePath, 0, &wUpdateFilePath);
-	if (!size) {
-		throw string("Could not convert updateFilePath to wide");
-	}
-
-	/* note, can't use CreateProcess to launch as admin. */
-	SHELLEXECUTEINFO execInfo = {};
-
-	execInfo.cbSize = sizeof(execInfo);
-	execInfo.lpFile = wUpdateFilePath;
-
-	string parameters;
-	if (branch != WIN_DEFAULT_BRANCH) {
-		parameters += "--branch=" + branch;
-	}
-
-	obs_cmdline_args obs_args = obs_get_cmdline_args();
-	for (int idx = 1; idx < obs_args.argc; idx++) {
-		if (!parameters.empty()) {
-			parameters += " ";
-		}
-
-		parameters += obs_args.argv[idx];
-	}
-
-	/* Portable mode can be enabled via sentinel files, so copying the
-	 * command line doesn't guarantee the flag to be there. */
-	if (App()->IsPortableMode() && parameters.find("--portable") == string::npos) {
-		if (!parameters.empty()) {
-			parameters += " ";
-		}
-		parameters += "--portable";
-	}
-
-	BPtr<wchar_t> lpParameters;
-	size = os_utf8_to_wcs_ptr(parameters.c_str(), 0, &lpParameters);
-	if (!size && !parameters.empty()) {
-		throw string("Could not convert parameters to wide");
-	}
-
-	execInfo.lpParameters = lpParameters;
-	execInfo.lpDirectory = cwd;
-	execInfo.nShow = SW_SHOWNORMAL;
-
-	if (!ShellExecuteEx(&execInfo)) {
-		QString msg = QTStr("Updater.FailedToLaunch");
-		info(msg, msg);
-		throw strprintf("Can't launch updater '%s': %d", updateFilePath.Get(), GetLastError());
-	}
-
-	/* force OBS to perform another update check immediately after updating
-	 * in case of issues with the new version */
-	config_set_int(App()->GetAppConfig(), "General", "LastUpdateCheck", 0);
-	config_set_string(App()->GetAppConfig(), "General", "SkipUpdateVersion", "0");
-
-	QMetaObject::invokeMethod(App()->GetMainWindow(), "close");
+	info(QTStr("Updater.UpdateAvailable.Title"),
+	     QTStr("Updater.UpdateAvailable.Text") + QString("\n\n") +
+	     QString::fromStdString(notes) + QString("\n\n") +
+	     QString("https://github.com/dahu/obs-studio/releases/latest"));
 
 } catch (string &text) {
 	blog(LOG_WARNING, "%s: %s", __FUNCTION__, text.c_str());

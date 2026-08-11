@@ -3,6 +3,9 @@
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("frontend-tools", "en-US")
 
+void InitAutoCleanup();
+void FreeAutoCleanup();
+
 void InitSceneSwitcher();
 void FreeSceneSwitcher();
 
@@ -26,6 +29,7 @@ bool obs_module_load(void)
 #endif
 	InitSceneSwitcher();
 	InitOutputTimer();
+	InitAutoCleanup();
 #if defined(ENABLE_SCRIPTING)
 	InitScripts();
 #endif
@@ -39,6 +43,7 @@ void obs_module_unload(void)
 #endif
 	FreeSceneSwitcher();
 	FreeOutputTimer();
+	FreeAutoCleanup();
 #if defined(ENABLE_SCRIPTING)
 	FreeScripts();
 #endif
