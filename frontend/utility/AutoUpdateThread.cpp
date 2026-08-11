@@ -18,11 +18,11 @@
 /* ------------------------------------------------------------------------ */
 
 #ifndef WIN_MANIFEST_URL
-#define WIN_MANIFEST_URL "https://api.github.com/repos/dahu/obs-studio/releases/latest"
+#define WIN_MANIFEST_URL "https://api.github.com/repos/LingyunStudio/obs-studio/releases/latest"
 #endif
 
 #ifndef WIN_BRANCHES_URL
-#define WIN_BRANCHES_URL "https://api.github.com/repos/dahu/obs-studio/releases"
+#define WIN_BRANCHES_URL "https://api.github.com/repos/LingyunStudio/obs-studio/releases"
 #endif
 
 #ifndef WIN_DEFAULT_BRANCH
@@ -30,7 +30,7 @@
 #endif
 
 #ifndef WIN_UPDATER_URL
-#define WIN_UPDATER_URL "https://github.com/dahu/obs-studio/releases/latest/download/updater.exe"
+#define WIN_UPDATER_URL "https://github.com/LingyunStudio/obs-studio/releases/latest/download/updater.exe"
 #endif
 
 /* ------------------------------------------------------------------------ */
@@ -269,7 +269,7 @@ try {
 	info(QTStr("Updater.UpdateAvailable.Title"),
 	     QTStr("Updater.UpdateAvailable.Text") + QString("\n\n") +
 	     QString::fromStdString(notes) + QString("\n\n") +
-	     QString("https://github.com/dahu/obs-studio/releases/latest"));
+	     QString("https://github.com/LingyunStudio/obs-studio/releases/latest"));
 
 } catch (string &text) {
 	blog(LOG_WARNING, "%s: %s", __FUNCTION__, text.c_str());

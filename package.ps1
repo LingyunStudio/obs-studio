@@ -90,6 +90,11 @@ Write-Host "`n==> Staging install tree (cmake --install)..." -ForegroundColor Ye
 cmake --install $BuildDir --config RelWithDebInfo --prefix $PortableStage
 Assert-LastExit "cmake --install failed for portable staging"
 
+# ---- Strip debug/dev files for a release-grade package ----
+Write-Host "    Stripping debug symbols (.pdb)..." -ForegroundColor Gray
+Get-ChildItem -Path $PortableStage -Recurse -File -Include "*.pdb","*.lib","*.exp","*.ilk" |
+    Remove-Item -Force -ErrorAction SilentlyContinue
+
 # The installer uses the same file tree, minus the portable-mode marker.
 Copy-Item -Recurse -Force "$PortableStage\*" $InstallerStage
 
