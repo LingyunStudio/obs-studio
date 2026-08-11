@@ -252,18 +252,40 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\bin\64bit\{#MyAppExeName}";
 Filename: "{app}\bin\64bit\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent$VcRedistRunLine
 
 [Code]
-// Return true if the VC++ 2015-2022 x64 runtime is not yet installed. The key
-// holds the highest installed version; the 2015-2022 family is binary-
-// compatible and shares one redist, so any installed version satisfies it.
+// Return true if the installed VC++ 2015-2022 x64 runtime is missing or older
+// than 14.40. OBS requires msvcp140.dll minor >= 40 to launch (see
+// vc_runtime_outdated() in obs-main.cpp); the shared redist registry key may
+// exist from an older VS 2015/2019 install, so the version must be compared,
+// not just the key's existence.
 function NeedsVCRedist: Boolean;
 var
-  Installed: String;
+  Ver: String;
+  MajorStr: String;
+  MinorStr: String;
+  p: Integer;
 begin
   Result := True;
   if RegQueryStringValue(HKLM64,
        'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64',
-       'Version', Installed) then
-    Result := False;
+       'Version', Ver) then
+  begin
+    // Value looks like "v14.44.35112.0" or "14.44.35112.0"
+    if Ver[1] = 'v' then
+      Delete(Ver, 1, 1);
+    p := Pos('.', Ver);
+    if p > 0 then
+    begin
+      MajorStr := Copy(Ver, 1, p - 1);
+      Ver := Copy(Ver, p + 1, Length(Ver) - p);
+      p := Pos('.', Ver);
+      if p > 0 then
+        MinorStr := Copy(Ver, 1, p - 1)
+      else
+        MinorStr := Ver;
+      if (MajorStr = '14') and (StrToIntDef(MinorStr, 0) >= 40) then
+        Result := False;
+    end;
+  end;
 end;
 "@ | Set-Content -Path $IssPath -Encoding UTF8
 
