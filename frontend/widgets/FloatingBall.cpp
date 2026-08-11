@@ -333,7 +333,12 @@ FloatingBall::FloatingBall(QWidget *parent) : QWidget(parent)
 	setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool | Qt::WindowDoesNotAcceptFocus);
 	setAttribute(Qt::WA_TranslucentBackground);
 	setAttribute(Qt::WA_ShowWithoutActivating);
-	setFixedSize(88, 48);
+	/* The widget is intentionally a few pixels larger than the capsule on
+	 * every side: on fractional display scaling (125%/133%/150%) the DWM
+	 * presentation of a layered window can wrap a 1-2 physical-pixel
+	 * strip from the right edge to the left. A transparent margin around
+	 * the visible pill absorbs that wrap, so it never shows on screen. */
+	setFixedSize(96, 48);
 	setToolTip(QTStr("FloatingBall.Tooltip"));
 
 	config_t *config = App()->GetUserConfig();
@@ -388,8 +393,9 @@ void FloatingBall::paintEvent(QPaintEvent *)
 		QPainter painter(&cache);
 		painter.setRenderHint(QPainter::Antialiasing);
 
-		const int margin = 2;
-		QRectF r = rect().adjusted(margin, margin, -margin, -margin);
+		/* 88x44 capsule centred in the 96x48 widget, surrounded by a
+		 * transparent safety margin (see constructor). */
+		QRectF r(4.0, 2.0, 88.0, 44.0);
 		qreal radius = r.height() / 2.0;
 
 		QPainterPath path;
@@ -415,7 +421,7 @@ void FloatingBall::paintEvent(QPaintEvent *)
 		cacheText = text;
 	}
 
-	p.drawPixmap(0, 0, cache);
+	p.drawPixmap(rect(), cache, QRectF(0, 0, width(), height()));
 }
 
 
