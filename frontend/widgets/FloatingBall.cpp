@@ -372,8 +372,11 @@ void FloatingBall::paintEvent(QPaintEvent *)
 	 * scaling it appears detached, to the left of the left cap). Drawing
 	 * into a plain pixmap and copying the image avoids that path. */
 	const qreal dpr = devicePixelRatioF() > 0.0 ? devicePixelRatioF() : 1.0;
-	const int pw = qRound(width() * dpr);
-	const int ph = qRound(height() * dpr);
+	/* qCeil, not qRound: at fractional DPI scaling (e.g. 133% -> 4/3) a
+	 * rounded-down pixmap can be one physical pixel smaller than the widget,
+	 * clipping the right end cap and causing it to blit at an offset. */
+	const int pw = qCeil(width() * dpr);
+	const int ph = qCeil(height() * dpr);
 	const QString text = recording ? elapsedText() : QTStr("FloatingBall.Record");
 
 	if (cache.isNull() || cache.devicePixelRatio() != dpr ||
