@@ -14,7 +14,8 @@
 param(
     [switch]$Setup,
     [switch]$SkipBuild,
-    [string]$Version = ""
+    [string]$Version = "",
+    [string]$VcRedist = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -95,6 +96,36 @@ Copy-Item -Recurse -Force "$PortableStage\*" $InstallerStage
 # ---- Portable marker ----
 New-Item -ItemType File -Force -Path "$PortableStage\portable_mode.txt" | Out-Null
 
+# ---- Visual C++ runtime ----
+# Fresh Windows machines lack vcruntime140.dll / msvcp140.dll, without which
+# obs64.exe will not start. Bundle vc_redist.x64.exe: the installer runs it
+# silently when the runtime is missing, and the portable zip ships it for the
+# user to run manually.
+if (-not $VcRedist) {
+    $VcRedistCandidates = @(
+        "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Redist\MSVC\v143\vc_redist.x64.exe",
+        "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Redist\MSVC\v143\vc_redist.x64.exe",
+        "C:\Program Files (x86)\Microsoft Visual Studio\2022\Community\VC\Redist\MSVC\v143\vc_redist.x64.exe",
+        "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Redist\MSVC\v143\vc_redist.x64.exe"
+    )
+    $VcRedistCandidates = $VcRedistCandidates | Sort-Object -Unique
+    foreach ($candidate in $VcRedistCandidates) {
+        if (Test-Path $candidate) {
+            $VcRedist = $candidate
+            break
+        }
+    }
+}
+
+$VcRedistAvailable = $false
+if ($VcRedist -and (Test-Path $VcRedist)) {
+    $VcRedistAvailable = $true
+    Copy-Item -Force $VcRedist "$PortableStage\vc_redist.x64.exe"
+    Write-Host "    Bundled VC++ runtime: $VcRedist" -ForegroundColor Gray
+} else {
+    Write-Warning "vc_redist.x64.exe not found; packages will require the user to install the VC++ 2015-2022 runtime separately. Pass -VcRedist <path> to specify it."
+}
+
 function Copy-Tree($Source, $Dest) {
     New-Item -ItemType Directory -Force -Path $Dest | Out-Null
     Copy-Item -Recurse -Force "$Source\*" $Dest
@@ -160,6 +191,13 @@ if ($Setup) {
     $LicensePath = "$RootDir\COPYING"
     $IconPath = "$RootDir\frontend\cmake\windows\obs-studio.ico"
 
+    $VcRedistFileLine = ""
+    $VcRedistRunLine = ""
+    if ($VcRedistAvailable) {
+        $VcRedistFileLine = "`r`n; VC++ runtime (extracted to {tmp}, deleted after install)`r`nSource: `"$VcRedist`"; DestDir: {tmp}; Flags: deleteafterinstall"
+        $VcRedistRunLine = "`r`nFilename: {tmp}\vc_redist.x64.exe; Parameters: /install /quiet /norestart; StatusMsg: Installing Visual C++ runtime...; Check: NeedsVCRedist; Flags: waituntilterminated"
+    }
+
     # Inno Setup constants must be escaped for the .iss file; paths use
     # backslashes already.
     @"
@@ -204,14 +242,29 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; portable_mode.txt must NOT be shipped with the installer
-Source: "$InstallerStage\*"; Excludes: "portable_mode.txt"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "$InstallerStage\*"; Excludes: "portable_mode.txt"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs$VcRedistFileLine
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\bin\64bit\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\bin\64bit\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\bin\64bit\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\bin\64bit\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent$VcRedistRunLine
+
+[Code]
+// Return true if the VC++ 2015-2022 x64 runtime is not yet installed. The key
+// holds the highest installed version; the 2015-2022 family is binary-
+// compatible and shares one redist, so any installed version satisfies it.
+function NeedsVCRedist: Boolean;
+var
+  Installed: String;
+begin
+  Result := True;
+  if RegQueryStringValue(HKLM64,
+       'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64',
+       'Version', Installed) then
+    Result := False;
+end;
 "@ | Set-Content -Path $IssPath -Encoding UTF8
 
     $Iscc = "$InnoSetupDir\ISCC.exe"
