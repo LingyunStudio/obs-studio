@@ -33,6 +33,8 @@
 !INSTALL
 !README.rst
 !README.md
+!README.en.md
+!package.ps1
 
 # Exclude lock files
 *.lock.json
