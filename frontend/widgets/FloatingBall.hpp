@@ -20,6 +20,7 @@
 #include <obs.h>
 
 #include <QPointer>
+#include <QPixmap>
 #include <QPoint>
 #include <QTimer>
 #include <QWidget>
@@ -69,6 +70,8 @@ private:
 	bool dragged = false;
 
 	QTimer tickTimer;
+	QPixmap cache;
+	QString cacheText;
 	bool recording = false;
 	qint64 recordStartMs = 0;
 	qint64 recordElapsedSecs = 0;

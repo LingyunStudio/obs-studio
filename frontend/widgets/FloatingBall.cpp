@@ -365,36 +365,56 @@ FloatingBall::~FloatingBall()
 void FloatingBall::paintEvent(QPaintEvent *)
 {
 	QPainter p(this);
-	p.setRenderHint(QPainter::Antialiasing);
 
-	QRectF r = rect().adjusted(2.0, 2.0, -2.0, -2.0);
-	qreal radius = r.height() / 2.0;
+	/* Render the whole ball into a cache pixmap and blit it. Rasterising
+	 * anti-aliased arc paths directly onto a frameless translucent layered
+	 * window misplaces the right end cap on some machines (under high-DPI
+	 * scaling it appears detached, to the left of the left cap). Drawing
+	 * into a plain pixmap and copying the image avoids that path. */
+	const qreal dpr = devicePixelRatioF() > 0.0 ? devicePixelRatioF() : 1.0;
+	const int pw = qRound(width() * dpr);
+	const int ph = qRound(height() * dpr);
+	const QString text = recording ? elapsedText() : QTStr("FloatingBall.Record");
 
-	/* Build the capsule shape explicitly (left cap + body + right cap)
-	 * instead of using drawRoundedRect: on a frameless translucent
-	 * layered window with radius == half-height, Qt's rounded-rect path
-	 * can mis-render the right cap on some systems. */
-	QPainterPath path;
-	path.moveTo(r.left() + radius, r.top());
-	path.lineTo(r.right() - radius, r.top());
-	path.arcTo(QRectF(r.right() - 2.0 * radius, r.top(), 2.0 * radius, r.height()), 90.0, -180.0);
-	path.lineTo(r.left() + radius, r.bottom());
-	path.arcTo(QRectF(r.left(), r.top(), 2.0 * radius, r.height()), 270.0, -180.0);
-	path.closeSubpath();
+	if (cache.isNull() || cache.devicePixelRatio() != dpr ||
+	    cache.width() != pw || cache.height() != ph || cacheText != text) {
+		cache = QPixmap(pw, ph);
+		cache.setDevicePixelRatio(dpr);
+		cache.fill(Qt::transparent);
 
-	QPen pen(QColor(255, 255, 255, 70), 1.0);
-	pen.setJoinStyle(Qt::RoundJoin);
-	p.setPen(pen);
-	p.setBrush(recording ? QColor(200, 45, 45, 225) : QColor(35, 35, 35, 200));
-	p.setRenderHint(QPainter::Antialiasing, true);
-	p.drawPath(path);
+		QPainter painter(&cache);
+		painter.setRenderHint(QPainter::Antialiasing);
 
-	QFont f = p.font();
-	f.setBold(true);
-	p.setFont(f);
-	p.setPen(Qt::white);
-	p.drawText(rect(), Qt::AlignCenter, recording ? elapsedText() : QTStr("FloatingBall.Record"));
+		const int margin = 2;
+		QRectF r = rect().adjusted(margin, margin, -margin, -margin);
+		qreal radius = r.height() / 2.0;
+
+		QPainterPath path;
+		path.moveTo(r.left() + radius, r.top());
+		path.lineTo(r.right() - radius, r.top());
+		path.arcTo(QRectF(r.right() - 2.0 * radius, r.top(), 2.0 * radius, r.height()), 90.0, -180.0);
+		path.lineTo(r.left() + radius, r.bottom());
+		path.arcTo(QRectF(r.left(), r.top(), 2.0 * radius, r.height()), 270.0, -180.0);
+		path.closeSubpath();
+
+		QPen pen(QColor(255, 255, 255, 70), 1.0);
+		pen.setJoinStyle(Qt::RoundJoin);
+		painter.setPen(pen);
+		painter.setBrush(recording ? QColor(200, 45, 45, 225) : QColor(35, 35, 35, 200));
+		painter.drawPath(path);
+
+		QFont f = painter.font();
+		f.setBold(true);
+		painter.setFont(f);
+		painter.setPen(Qt::white);
+		painter.drawText(rect(), Qt::AlignCenter, text);
+
+		cacheText = text;
+	}
+
+	p.drawPixmap(0, 0, cache);
 }
+
 
 QString FloatingBall::elapsedText() const
 {
