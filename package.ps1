@@ -40,14 +40,7 @@ if (-not $Version) {
     if ($CacheLine) {
         $ProjectVer = $CacheLine.Matches[0].Groups[1].Value
     }
-    Push-Location $RootDir
-    try {
-        $Sha = git rev-parse --short HEAD 2>$null
-    }
-    finally {
-        Pop-Location
-    }
-    $Version = if ($Sha) { "$ProjectVer-custom-$Sha" } else { "$ProjectVer-custom" }
+    $Version = "$ProjectVer-custom"
 }
 if ($Version -match '^(\d+)\.(\d+)\.(\d+)') {
     $VerMajor = $Matches[1]
