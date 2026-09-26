@@ -37,6 +37,10 @@
 #include <obs-frontend-api.h>
 #include <util/config-file.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 /* Click-through border shown around the captured region while a "draw
  * region" recording session is active. */
 class RegionBorder : public QWidget {
@@ -467,31 +471,76 @@ void FloatingBall::onTick()
 	if (active)
 		pendingStartMs = 0;
 
-	/* The ball is a parentless Qt::Tool window; Windows/Qt may hide it on
-	 * its own (explorer restart, minimisation to tray, modal dialogs), and
-	 * a monitor topology change can leave its saved position off-screen.
-	 * When it is supposed to be enabled, bring it back and keep it on a
-	 * visible screen. Skipped while the region-adjust frame is up so it
-	 * never steals the topmost slot. */
+	/* The ball is a parentless Qt::Tool window; Windows can hide or bury
+	 * it behind Qt's back (resume from sleep/hibernate, secure desktop,
+	 * explorer restart, display topology changes), and a monitor topology
+	 * change can leave its saved position off-screen. When it is supposed
+	 * to be enabled, bring it back and keep it on a visible screen.
+	 * Skipped while the region-adjust frame is up so it never steals the
+	 * topmost slot. */
 	config_t *config = App()->GetUserConfig();
 	bool enabled = config_get_bool(config, "BasicWindow", "FloatingBallEnabled");
-	if (enabled && !adjustFrame) {
-		QScreen *screen = QGuiApplication::screenAt(frameGeometry().center());
-		if (!screen)
-			screen = QGuiApplication::primaryScreen();
-		if (screen) {
-			QRect avail = screen->availableGeometry();
-			QRect geom = frameGeometry();
-			int nx = qBound(avail.left(), geom.left(), avail.right() - geom.width() + 1);
-			int ny = qBound(avail.top(), geom.top(), avail.bottom() - geom.height() + 1);
-			if (nx != geom.left() || ny != geom.top())
-				move(nx, ny);
-		}
-		if (!isVisible())
-			show();
-	}
+	if (enabled && !adjustFrame)
+		ensureOnScreenAndVisible();
 
 	update();
+}
+
+void FloatingBall::ensureOnScreenAndVisible()
+{
+	QScreen *screen = QGuiApplication::screenAt(frameGeometry().center());
+	if (!screen)
+		screen = QGuiApplication::primaryScreen();
+	if (screen) {
+		QRect avail = screen->availableGeometry();
+		QRect geom = frameGeometry();
+		int nx = qBound(avail.left(), geom.left(), avail.right() - geom.width() + 1);
+		int ny = qBound(avail.top(), geom.top(), avail.bottom() - geom.height() + 1);
+		if (nx != geom.left() || ny != geom.top())
+			move(nx, ny);
+	}
+
+#ifdef _WIN32
+	/* isVisible() can go stale: Windows may hide or destroy the native
+	 * window without telling Qt (resume from sleep/hibernate, secure
+	 * desktop, explorer restart, ...), and QWidget::show() early-returns
+	 * while Qt still believes the window is visible. Judge by the real
+	 * Win32 state: reset Qt's hidden state and re-show through Qt, and
+	 * make sure the topmost style survived. */
+	HWND hwnd = reinterpret_cast<HWND>(winId());
+	if (!IsWindow(hwnd) || !IsWindowVisible(hwnd)) {
+		hide();
+		show();
+		hwnd = reinterpret_cast<HWND>(winId());
+	} else if (!(GetWindowLong(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST)) {
+		SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+	}
+#else
+	if (!isVisible())
+		show();
+#endif
+}
+
+bool FloatingBall::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
+{
+#ifdef _WIN32
+	if (eventType == "windows_generic_MSG") {
+		MSG *msg = static_cast<MSG *>(message);
+		/* waking up from sleep/hibernate can leave the native window
+		 * hidden or stripped of its topmost flag; restore immediately
+		 * instead of waiting for the next tick */
+		if (msg->message == WM_POWERBROADCAST &&
+		    (msg->wParam == PBT_APMRESUMEAUTOMATIC || msg->wParam == PBT_APMRESUMESUSPEND)) {
+			QMetaObject::invokeMethod(this, &FloatingBall::ensureOnScreenAndVisible,
+						  Qt::QueuedConnection);
+		}
+	}
+#else
+	Q_UNUSED(eventType);
+	Q_UNUSED(message);
+	Q_UNUSED(result);
+#endif
+	return QWidget::nativeEvent(eventType, message, result);
 }
 
 /* ------------------------------------------------------------------------- */

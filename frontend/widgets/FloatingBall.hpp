@@ -45,6 +45,7 @@ protected:
 	void mousePressEvent(QMouseEvent *event) override;
 	void mouseMoveEvent(QMouseEvent *event) override;
 	void mouseReleaseEvent(QMouseEvent *event) override;
+	bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
 
 private slots:
 	void onTick();
@@ -57,6 +58,7 @@ private slots:
 private:
 	QString elapsedText() const;
 	void finishRegionRecord();
+	void ensureOnScreenAndVisible();
 	bool createTempSceneAndSwitch(const char *monitorId, long rx, long ry, long rw, long rh,
 				      long ax, long ay, bool startRecording);
 	bool updateTempRegion(const char *monitorId, long rx, long ry, long rw, long rh);
