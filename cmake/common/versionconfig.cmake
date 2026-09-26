@@ -21,6 +21,8 @@ if(NOT DEFINED OBS_VERSION_OVERRIDE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git
   endif()
 
   if(_obs_version_result EQUAL 0)
+    # tolerate tags with a leading 'v' (custom release tags use e.g. v36.0.2-custom)
+    string(REGEX REPLACE "^v" "" _obs_version "${_obs_version}")
     string(REGEX REPLACE "([0-9]+)\\.([0-9]+)\\.([0-9]+).*" "\\1;\\2;\\3" _obs_version_canonical ${_obs_version})
   endif()
 elseif(DEFINED OBS_VERSION_OVERRIDE)
